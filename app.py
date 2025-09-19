@@ -16,8 +16,8 @@ else:
 # =======================
 # Título principal
 # =======================
-st.title("📊 Predictivo de Mantenimiento")
-st.write("Sube el archivo de activos (Excel)")
+st.title("📊 GeminiAssist Predictivo de Mantenimiento")
+
 
 # =======================
 # Subir archivo Excel
