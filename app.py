@@ -5,13 +5,13 @@ from fpdf import FPDF
 import io
 
 # ========================
-# Configuración de la app
+# Configuración
 # ========================
 st.set_page_config(page_title="Gemini Assist – Informe Predictivo de Mantenimiento", layout="centered")
-st.title("📊 Gemini Assist – Informe Predictivo de Mantenimiento")
+st.title("📊 Predictivo de Mantenimiento")
 
 # ========================
-# API Key desde Streamlit Cloud
+# API Key
 # ========================
 API_KEY = st.secrets.get("API_KEY", None)
 if not API_KEY:
@@ -21,57 +21,69 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 
 # ========================
-# Subida de archivo Excel
+# Subida de archivo
 # ========================
 uploaded_file = st.file_uploader("Sube el archivo de activos (Excel)", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     st.success("✅ Archivo cargado correctamente")
-    st.dataframe(df.head())
+    st.dataframe(df)
 
     if st.button("Generar Informe"):
-        tabla_texto = df.head(10).to_string(index=False)
+        try:
+            # Convertimos la tabla a texto
+            tabla_texto = df.to_string(index=False)
 
-        prompt = f"""
-        Eres Gemini Assist, un sistema predictivo de mantenimiento hospitalario.
+            # Prompt
+            prompt = f"""
+            Eres Gemini Assist, un sistema predictivo de mantenimiento hospitalario.
 
-        Aquí tienes los datos de activos hospitalarios:
-        {tabla_texto}
+            Aquí tienes los datos de activos hospitalarios:
+            {tabla_texto}
 
-        Con esta tabla, necesito que hagas lo siguiente:
-        1. Ranking de riesgo de fallo en los próximos 3 meses (de mayor a menor).
-        2. Acciones preventivas para los 3 activos más críticos.
-        3. Estimación de ahorro en € y horas si aplico esas medidas.
-        4. Panel de alertas clasificando cada activo en:
-           🟢 Bajo riesgo, 🟡 Riesgo medio, 🔴 Riesgo alto.
-        5. Un informe ejecutivo de máximo 5 líneas para Dirección.
-        """
+            Con esta tabla, necesito que hagas lo siguiente:
+            1. Ranking de riesgo de fallo en los próximos 3 meses (de mayor a menor).
+            2. Acciones preventivas para los 3 activos más críticos.
+            3. Estimación de ahorro en € y horas si aplico esas medidas.
+            4. Panel de alertas clasificando cada activo en:
+               🟢 Bajo riesgo, 🟡 Riesgo medio, 🔴 Riesgo alto.
+            5. Un informe ejecutivo de máximo 5 líneas para Dirección.
+            """
 
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(prompt)
-        informe = response.text
+            # Llamada a Gemini
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            response = model.generate_content(prompt)
 
-        st.subheader("📑 Informe generado")
-        st.write(informe)
+            # Guardamos el informe en session_state
+            st.session_state["informe"] = response.text
 
-        # ========================
-        # Botón de descarga PDF
-        # ========================
-        if st.button("📥 Descargar Informe PDF"):
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-            pdf.set_font("DejaVu", size=12)
-            pdf.multi_cell(0, 10, informe)
+        except Exception as e:
+            st.error(f"❌ Error al generar informe: {e}")
 
-            pdf_output = io.BytesIO()
-            pdf.output(pdf_output, "F")
-            pdf_output.seek(0)
+# ========================
+# Mostrar informe
+# ========================
+if "informe" in st.session_state:
+    st.subheader("📑 Informe generado")
+    st.write(st.session_state["informe"])
 
-            st.download_button(
-                label="📥 Descargar Informe en PDF",
-                data=pdf_output,
-                file_name="Informe_GeminiAssist.pdf",
-                mime="application/pdf"
-            )
+    # ========================
+    # Descargar en PDF
+    # ========================
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+    pdf.set_font("DejaVu", size=12)
+    pdf.multi_cell(0, 10, st.session_state["informe"])
+
+    pdf_output = io.BytesIO()
+    pdf.output(pdf_output, "F")
+    pdf_output.seek(0)
+
+    st.download_button(
+        label="📥 Descargar Informe PDF",
+        data=pdf_output,
+        file_name="Informe_GeminiAssist.pdf",
+        mime="application/pdf"
+    )
