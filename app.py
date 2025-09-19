@@ -10,15 +10,11 @@ import os
 # =======================
 API_KEY = None
 
-# 1. Intentar leer de st.secrets
 if "API_KEY" in st.secrets:
     API_KEY = st.secrets["API_KEY"]
-
-# 2. Si no existe, intentar de variables de entorno
 elif "API_KEY" in os.environ:
     API_KEY = os.environ["API_KEY"]
 
-# 3. Si no está configurada, mostrar aviso
 if not API_KEY:
     st.error("❌ No se encontró la API_KEY. Añádela en Settings → Secrets de Streamlit Cloud.")
 else:
@@ -52,7 +48,7 @@ if uploaded_file is not None and API_KEY:
             2. Acciones preventivas para los 3 activos más críticos.
             3. Estimación de ahorro en € y horas si aplico esas medidas.
             4. Panel de alertas clasificando cada activo en:
-               Bajo riesgo, Riesgo medio, Riesgo alto.
+               🟢 Bajo riesgo, 🟡 Riesgo medio, 🔴 Riesgo alto.
             5. Un informe ejecutivo de máximo 5 líneas para Dirección.
             """
 
@@ -69,25 +65,32 @@ if uploaded_file is not None and API_KEY:
             st.write(informe)
 
             # =======================
-            # Crear PDF
+            # Crear PDF con fuente Unicode
             # =======================
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Arial", "B", 16)
-            pdf.multi_cell(0, 10, "Gemini Assist - Informe Predictivo de Mantenimiento", align="C")
 
-            pdf.set_font("Arial", size=12)
+            # Cargar fuentes DejaVu (asegúrate de tener los .ttf en la carpeta del proyecto)
+            pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+            pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
+            pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
+
+            # Título
+            pdf.set_font("DejaVu", "B", 16)
+            pdf.cell(0, 10, "Gemini Assist - Informe Predictivo de Mantenimiento", ln=True, align="C")
+
+            pdf.set_font("DejaVu", size=12)
             pdf.ln(10)
 
-            # Evitar errores por caracteres problemáticos
-            informe_limpio = informe.replace("🟢", "Bajo").replace("🟡", "Medio").replace("🔴", "Alto")
-
-            for linea in informe_limpio.split("\n"):
+            # Escribir informe (con soporte € y emojis)
+            for linea in informe.split("\n"):
                 if linea.strip():
                     pdf.multi_cell(180, 8, linea, align="J")
 
-            pdf_bytes = pdf.output(dest="S").encode("latin1")
+            # Guardar en memoria
+            pdf_bytes = pdf.output(dest="S").encode("latin1", "ignore")
 
+            st.success("✅ Informe PDF generado")
             st.download_button(
                 label="📥 Descargar Informe en PDF",
                 data=pdf_bytes,
