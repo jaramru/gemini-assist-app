@@ -65,17 +65,17 @@ if uploaded_file is not None and API_KEY:
             st.write(informe)
 
             # =======================
-            # Crear PDF con fuente Unicode
+            # Crear PDF con fuente DejaVu
             # =======================
             pdf = FPDF()
             pdf.add_page()
 
-            # Cargar fuentes DejaVu (asegúrate de tener los .ttf en la carpeta del proyecto)
+            # Añadir fuentes DejaVu (asegúrate de tener los .ttf en el repo)
             pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
             pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
             pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
 
-            # Título
+            # Portada
             pdf.set_font("DejaVu", "B", 16)
             pdf.cell(0, 10, "Gemini Assist - Informe Predictivo de Mantenimiento", ln=True, align="C")
 
@@ -100,3 +100,4 @@ if uploaded_file is not None and API_KEY:
 
     except Exception as e:
         st.error(f"❌ Error al procesar el archivo: {e}")
+
