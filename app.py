@@ -3,41 +3,36 @@ import pandas as pd
 import google.generativeai as genai
 from fpdf import FPDF
 import datetime
+import os
 
 # =======================
-# Configuración API
+# Configuración API (lectura doble)
 # =======================
-API_KEY = st.secrets["API_KEY"]
-genai.configure(api_key=API_KEY)
+API_KEY = None
+
+# 1. Intentar leer de st.secrets
+if "API_KEY" in st.secrets:
+    API_KEY = st.secrets["API_KEY"]
+
+# 2. Si no existe, intentar de variables de entorno
+elif "API_KEY" in os.environ:
+    API_KEY = os.environ["API_KEY"]
+
+# 3. Si no está configurada, mostrar aviso
+if not API_KEY:
+    st.error("❌ No se encontró la API_KEY. Añádela en Settings → Secrets de Streamlit Cloud.")
+else:
+    genai.configure(api_key=API_KEY)
 
 st.set_page_config(page_title="Gemini Assist", page_icon="📊", layout="wide")
 st.title("📊 Gemini Assist – Informe Predictivo de Mantenimiento")
-
-# =======================
-# Función para generar PDF
-# =======================
-def generar_pdf(informe_texto):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "Gemini Assist - Informe Predictivo de Mantenimiento", ln=True, align="C")
-
-    pdf.set_font("Arial", size=12)
-    pdf.ln(10)  # Espacio
-
-    # Dividir el informe en líneas para no cortar texto
-    for linea in informe_texto.split("\n"):
-        pdf.multi_cell(0, 10, linea)
-
-    # Guardar en memoria como bytes
-    return pdf.output(dest="S").encode("latin1")
 
 # =======================
 # Subida de archivo Excel
 # =======================
 uploaded_file = st.file_uploader("Sube el archivo de activos (Excel)", type=["xlsx"])
 
-if uploaded_file is not None:
+if uploaded_file is not None and API_KEY:
     try:
         df = pd.read_excel(uploaded_file)
         st.success("✅ Archivo cargado correctamente")
@@ -57,7 +52,7 @@ if uploaded_file is not None:
             2. Acciones preventivas para los 3 activos más críticos.
             3. Estimación de ahorro en € y horas si aplico esas medidas.
             4. Panel de alertas clasificando cada activo en:
-               🟢 Bajo riesgo, 🟡 Riesgo medio, 🔴 Riesgo alto.
+               Bajo riesgo, Riesgo medio, Riesgo alto.
             5. Un informe ejecutivo de máximo 5 líneas para Dirección.
             """
 
@@ -73,14 +68,30 @@ if uploaded_file is not None:
             st.subheader("📑 Informe generado")
             st.write(informe)
 
-            # Botón para descargar PDF
-            pdf_bytes = generar_pdf(informe)
-            fecha = datetime.date.today().strftime("%Y-%m-%d")
+            # =======================
+            # Crear PDF
+            # =======================
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", "B", 16)
+            pdf.multi_cell(0, 10, "Gemini Assist - Informe Predictivo de Mantenimiento", align="C")
+
+            pdf.set_font("Arial", size=12)
+            pdf.ln(10)
+
+            # Evitar errores por caracteres problemáticos
+            informe_limpio = informe.replace("🟢", "Bajo").replace("🟡", "Medio").replace("🔴", "Alto")
+
+            for linea in informe_limpio.split("\n"):
+                if linea.strip():
+                    pdf.multi_cell(180, 8, linea, align="J")
+
+            pdf_bytes = pdf.output(dest="S").encode("latin1")
 
             st.download_button(
                 label="📥 Descargar Informe en PDF",
                 data=pdf_bytes,
-                file_name=f"Informe_GeminiAssist_{fecha}.pdf",
+                file_name=f"Informe_GeminiAssist_{datetime.date.today()}.pdf",
                 mime="application/pdf",
             )
 
