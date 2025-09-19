@@ -1,47 +1,77 @@
-from fpdf import FPDF
 import streamlit as st
+import pandas as pd
+import google.generativeai as genai
+from fpdf import FPDF
+import io
 
-def generar_pdf(informe: str) -> bytes:
-    class PDF(FPDF):
-        def header(self):
-            self.set_font("DejaVu", "", 12)
-            self.cell(0, 10, "Gemini Assist – Informe de Mantenimiento Predictivo", align="C", ln=True)
+# ========================
+# Configuración de la app
+# ========================
+st.set_page_config(page_title="Gemini Assist – Informe Predictivo de Mantenimiento", layout="centered")
+st.title("📊 Gemini Assist – Informe Predictivo de Mantenimiento")
 
-        def footer(self):
-            self.set_y(-15)
-            self.set_font("DejaVu", "I", 8)
-            self.cell(0, 10, f"Página {self.page_no()}", align="C")
+# ========================
+# API Key desde Streamlit Cloud
+# ========================
+API_KEY = st.secrets.get("API_KEY", None)
+if not API_KEY:
+    st.error("❌ No se encontró la API_KEY en los Secrets de Streamlit.")
+    st.stop()
 
-    pdf = PDF()
-    pdf.add_page()
+genai.configure(api_key=API_KEY)
 
-    # 🔹 Asegúrate de que las fuentes DejaVu están en tu repo
-    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-    pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
-    pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
+# ========================
+# Subida de archivo Excel
+# ========================
+uploaded_file = st.file_uploader("Sube el archivo de activos (Excel)", type=["xlsx"])
 
-    pdf.set_font("DejaVu", "", 12)
-    pdf.multi_cell(0, 10, informe)
+if uploaded_file:
+    df = pd.read_excel(uploaded_file)
+    st.success("✅ Archivo cargado correctamente")
+    st.dataframe(df.head())
 
-    # Guardar en memoria en lugar de archivo físico
-    return pdf.output(dest="S").encode("latin1")
+    if st.button("Generar Informe"):
+        tabla_texto = df.head(10).to_string(index=False)
 
+        prompt = f"""
+        Eres Gemini Assist, un sistema predictivo de mantenimiento hospitalario.
 
-# =======================
-# Dentro del flujo de Streamlit
-# =======================
+        Aquí tienes los datos de activos hospitalarios:
+        {tabla_texto}
 
-if st.button("Generar Informe PDF"):
-    try:
-        pdf_bytes = generar_pdf(informe)
-        st.success("✅ Informe generado correctamente")
+        Con esta tabla, necesito que hagas lo siguiente:
+        1. Ranking de riesgo de fallo en los próximos 3 meses (de mayor a menor).
+        2. Acciones preventivas para los 3 activos más críticos.
+        3. Estimación de ahorro en € y horas si aplico esas medidas.
+        4. Panel de alertas clasificando cada activo en:
+           🟢 Bajo riesgo, 🟡 Riesgo medio, 🔴 Riesgo alto.
+        5. Un informe ejecutivo de máximo 5 líneas para Dirección.
+        """
 
-        # Botón de descarga
-        st.download_button(
-            label="📥 Descargar Informe en PDF",
-            data=pdf_bytes,
-            file_name="Informe_GeminiAssist.pdf",
-            mime="application/pdf"
-        )
-    except Exception as e:
-        st.error(f"❌ Error al generar el PDF: {e}")
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = model.generate_content(prompt)
+        informe = response.text
+
+        st.subheader("📑 Informe generado")
+        st.write(informe)
+
+        # ========================
+        # Botón de descarga PDF
+        # ========================
+        if st.button("📥 Descargar Informe PDF"):
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+            pdf.set_font("DejaVu", size=12)
+            pdf.multi_cell(0, 10, informe)
+
+            pdf_output = io.BytesIO()
+            pdf.output(pdf_output, "F")
+            pdf_output.seek(0)
+
+            st.download_button(
+                label="📥 Descargar Informe en PDF",
+                data=pdf_output,
+                file_name="Informe_GeminiAssist.pdf",
+                mime="application/pdf"
+            )
