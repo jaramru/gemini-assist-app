@@ -41,31 +41,28 @@ class PDF(FPDF):
 # Función generar PDF
 # ========================
 def generar_pdf(informe_texto):
-    pdf = PDF()
+    pdf = FPDF()
     pdf.add_page()
 
-    # Registrar fuentes DejaVu (normal, negrita, cursiva)
-    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-    pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
-    pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
+    # === Registrar fuentes DejaVu ===
+    pdf.add_font("DejaVu", "", os.path.join(os.getcwd(), "DejaVuSans.ttf"), uni=True)
+    pdf.add_font("DejaVu", "B", os.path.join(os.getcwd(), "DejaVuSans-Bold.ttf"), uni=True)
+    pdf.add_font("DejaVu", "I", os.path.join(os.getcwd(), "DejaVuSans-Oblique.ttf"), uni=True)
+    pdf.add_font("DejaVu", "BI", os.path.join(os.getcwd(), "DejaVuSans-BoldOblique.ttf"), uni=True)
 
-    # Título
+    # Usar DejaVu como fuente base
     pdf.set_font("DejaVu", "B", 16)
-    pdf.cell(0, 10, "INFORME PREDICTIVO DE MANTENIMIENTO", ln=True, align="C")
+    pdf.cell(0, 10, "Gemini Assist - Informe de Mantenimiento Predictivo", ln=True, align="C")
     pdf.ln(10)
 
-    # Fecha
     pdf.set_font("DejaVu", "", 12)
-    pdf.cell(0, 10, f"Fecha: {datetime.today().strftime('%d-%m-%Y')}", ln=True, align="R")
-    pdf.ln(10)
+    pdf.multi_cell(0, 8, informe_texto)
 
-    # Contenido
-    pdf.set_font("DejaVu", "", 12)
-    pdf.multi_cell(0, 8, informe_texto, align="J")
+    # Guardar PDF en disco
+    nombre_archivo = "Informe_GeminiAssist.pdf"
+    pdf.output(nombre_archivo)
+    return nombre_archivo
 
-    # Exportar PDF como bytes
-    pdf_bytes = pdf.output(dest="S").encode("latin-1")
-    return pdf_bytes
 
 # ========================
 # Subir archivo Excel
