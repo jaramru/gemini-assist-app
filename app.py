@@ -40,28 +40,38 @@ class PDF(FPDF):
 # ========================
 # Función generar PDF
 # ========================
-def generar_pdf(informe_texto):
+def generar_pdf(informe):
     pdf = FPDF()
     pdf.add_page()
 
-    # === Registrar fuentes DejaVu ===
-    pdf.add_font("DejaVu", "", os.path.join(os.getcwd(), "DejaVuSans.ttf"), uni=True)
-    pdf.add_font("DejaVu", "B", os.path.join(os.getcwd(), "DejaVuSans-Bold.ttf"), uni=True)
-    pdf.add_font("DejaVu", "I", os.path.join(os.getcwd(), "DejaVuSans-Oblique.ttf"), uni=True)
-    pdf.add_font("DejaVu", "BI", os.path.join(os.getcwd(), "DejaVuSans-BoldOblique.ttf"), uni=True)
+    # Registrar fuentes DejaVu (asegúrate de tenerlas en el repo)
+    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+    pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
+    pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
+    pdf.add_font("DejaVu", "BI", "DejaVuSans-BoldOblique.ttf", uni=True)
 
-    # Usar DejaVu como fuente base
     pdf.set_font("DejaVu", "B", 16)
-    pdf.cell(0, 10, "Gemini Assist - Informe de Mantenimiento Predictivo", ln=True, align="C")
+    pdf.cell(0, 10, "Gemini Assist – Informe de Mantenimiento Predictivo", ln=True, align="C")
+
     pdf.ln(10)
-
     pdf.set_font("DejaVu", "", 12)
-    pdf.multi_cell(0, 8, informe_texto)
+    pdf.multi_cell(0, 10, informe)
 
-    # Guardar PDF en disco
-    nombre_archivo = "Informe_GeminiAssist.pdf"
-    pdf.output(nombre_archivo)
-    return nombre_archivo
+    # Guardar en memoria
+    pdf_buffer = io.BytesIO()
+    pdf.output(pdf_buffer, "F")  # "F" para escribir en el buffer
+    pdf_buffer.seek(0)
+    return pdf_buffer
+
+# Mostrar botón de descarga en Streamlit
+if informe:
+    pdf_file = generar_pdf(informe)
+    st.download_button(
+        label="⬇️ Descargar Informe PDF",
+        data=pdf_file,
+        file_name="Informe_GeminiAssist.pdf",
+        mime="application/pdf"
+    )
 
 
 # ========================
