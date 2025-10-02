@@ -1,158 +1,121 @@
-import re
+import streamlit as st
+import pandas as pd
+import google.generativeai as genai
 from io import BytesIO
-from datetime import datetime
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
+# ==========================
+# Configuración inicial
+# ==========================
+st.set_page_config(page_title="Gemini Assist – Predictivo de Mantenimiento", layout="wide")
+
+genai.configure(api_key=st.secrets["API_KEY"])
+
+# ==========================
+# Función para generar Word
+# ==========================
 def generar_word(informe, df):
     doc = Document()
 
-    # =======================
-    # PORTADA
-    # =======================
+    # Portada
     section = doc.sections[0]
     section.top_margin = Inches(1)
     section.bottom_margin = Inches(1)
     section.left_margin = Inches(1)
     section.right_margin = Inches(1)
 
-    # Logo centrado
-    try:
-        p = doc.add_paragraph()
-        run = p.add_run()
-        run.add_picture("images/logo.png", width=Inches(2))
-        p.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    except:
-        pass
+    if "images/logo.png":
+        try:
+            doc.add_picture("images/logo.png", width=Inches(2))
+        except:
+            pass
 
-    # Título
-    titulo = doc.add_paragraph("Gemini Assist")
+    titulo = doc.add_paragraph("Gemini Assist\nInforme Predictivo de Mantenimiento")
     titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    run = titulo.runs[0]
-    run.font.size = Pt(28)
-    run.font.bold = True
-    run.font.color.rgb = RGBColor(0, 51, 153)  # Azul corporativo
+    titulo.runs[0].font.size = Pt(20)
+    titulo.runs[0].font.bold = True
 
-    subtitulo = doc.add_paragraph("Informe Predictivo de Mantenimiento Hospitalario")
-    subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    run = subtitulo.runs[0]
-    run.font.size = Pt(16)
-    run.font.italic = True
-
-    # Fecha
-    fecha = datetime.now().strftime("%d/%m/%Y")
-    fecha_p = doc.add_paragraph(f"Fecha del Informe: {fecha}")
-    fecha_p.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    run = fecha_p.runs[0]
-    run.font.size = Pt(12)
-
-    # Salto de página
     doc.add_page_break()
 
-    # =======================
-    # Ranking (Top 10 activos)
-    # =======================
-    doc.add_heading("⚠️ Ranking de Riesgo (Top 10 activos)", level=1)
-    top10 = df.head(10)
+    # Ranking tabla
+    doc.add_heading("📊 Ranking de Riesgo (Top 10 activos)", level=1)
+    table = doc.add_table(rows=1, cols=len(df.columns))
+    table.style = "Table Grid"
 
-    table = doc.add_table(rows=1, cols=len(top10.columns))
-    table.style = "Light List Accent 1"
-
+    # Encabezados
     hdr_cells = table.rows[0].cells
-    for i, col in enumerate(top10.columns):
-        hdr_cells[i].text = col
+    for i, col in enumerate(df.columns):
+        run = hdr_cells[i].paragraphs[0].add_run(str(col))
+        run.bold = True
 
-    for _, row in top10.iterrows():
+    # Filas (máx 10)
+    for index, row in df.head(10).iterrows():
         row_cells = table.add_row().cells
         for i, value in enumerate(row):
             row_cells[i].text = str(value)
 
     doc.add_paragraph("\n")
 
-    # =======================
-    # Parseo del informe Gemini
-    # =======================
+    # Informe detallado
     doc.add_heading("📄 Informe Detallado", level=1)
+    doc.add_paragraph(informe)
 
-    lineas = informe.split("\n")
-    tabla_buffer = []
-    dentro_tabla = False
+    # Guardar en memoria
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
 
-    for linea in lineas:
-        linea = linea.strip()
-        if not linea:
-            continue
+# ==========================
+# Interfaz Streamlit
+# ==========================
+st.title("🔧 Gemini Assist – Predictivo de Mantenimiento")
 
-        # Quitar separadores Markdown
-        if linea.startswith("---") or linea.startswith("```"):
-            continue
+uploaded_file = st.file_uploader("📂 Sube el archivo de activos (Excel)", type=["xlsx"])
 
-        # Encabezados
-        if linea.startswith("### "):
-            doc.add_heading(linea[4:].strip(), level=3)
-        elif linea.startswith("## "):
-            doc.add_heading(linea[3:].strip(), level=2)
-        elif linea.startswith("# "):
-            doc.add_heading(linea[2:].strip(), level=1)
+if uploaded_file:
+    df = pd.read_excel(uploaded_file)
+    st.success("✅ Archivo cargado correctamente")
+    st.dataframe(df)
 
-        # Listas
-        elif linea.startswith(("- ", "* ")):
-            doc.add_paragraph(_procesar_negritas(linea[2:].strip()), style="List Bullet")
-        elif re.match(r"^\d+\.", linea):
-            doc.add_paragraph(_procesar_negritas(linea), style="List Number")
+    if st.button("Generar Informe"):
+        with st.spinner("🧠 Generando informe con Gemini Assist..."):
+            try:
+                # Convertir tabla en texto
+                tabla_texto = df.head(10).to_string(index=False)
 
-        # Tablas Markdown
-        elif "|" in linea:
-            if "---" in linea:
-                continue
-            cols = [c.strip() for c in linea.split("|") if c.strip()]
-            if not dentro_tabla:
-                dentro_tabla = True
-                tabla_buffer = [cols]
-            else:
-                tabla_buffer.append(cols)
-        else:
-            # Cerrar tabla si había
-            if dentro_tabla and tabla_buffer:
-                tbl = doc.add_table(rows=1, cols=len(tabla_buffer[0]))
-                tbl.style = "Medium Shading 1 Accent 1"
-                hdr_cells = tbl.rows[0].cells
-                for i, col in enumerate(tabla_buffer[0]):
-                    hdr_cells[i].text = col
-                for row in tabla_buffer[1:]:
-                    row_cells = tbl.add_row().cells
-                    for i, col in enumerate(row):
-                        row_cells[i].text = col
-                tabla_buffer = []
-                dentro_tabla = False
+                # Prompt a Gemini
+                prompt = f"""
+                Soy Gemini Assist, experto en mantenimiento hospitalario.
+                Aquí tienes los datos de los activos:
+                {tabla_texto}
 
-            # Texto normal con negritas
-            doc.add_paragraph(_procesar_negritas(linea))
+                Genera un informe con:
+                1. Ranking de riesgo de fallo en los próximos 3 meses (máx 10 activos).
+                2. Acciones preventivas para los activos críticos.
+                3. Estimación de ahorro (€ y horas).
+                4. Panel de alertas por colores (🟢 bajo, 🟡 medio, 🔴 alto).
+                5. Un informe ejecutivo de máximo 5 líneas para Dirección.
+                """
 
-    # Estilo general
-    style = doc.styles["Normal"]
-    font = style.font
-    font.name = "Calibri"
-    font.size = Pt(11)
+                model = genai.GenerativeModel("gemini-2.5-flash")
+                response = model.generate_content(prompt)
+                informe = response.text
 
-    output = BytesIO()
-    doc.save(output)
-    return output.getvalue()
+                st.subheader("📊 Informe generado")
+                st.write(informe)
 
+                # Generar Word
+                word_bytes = generar_word(informe, df)
+                st.download_button(
+                    label="⬇️ Descargar Informe Word",
+                    data=word_bytes,
+                    file_name="informe_predictivo.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
 
-# =======================
-# Auxiliar para negritas
-# =======================
-def _procesar_negritas(texto):
-    partes = re.split(r"(\*\*.*?\*\*)", texto)
-    from docx import Document
-    temp_doc = Document()
-    p = temp_doc.add_paragraph()
-    for parte in partes:
-        if parte.startswith("**") and parte.endswith("**"):
-            run = p.add_run(parte[2:-2])
-            run.bold = True
-        else:
-            p.add_run(parte)
-    return p.text
+            except Exception as e:
+                st.error(f"❌ Error al procesar el archivo: {e}")
+
