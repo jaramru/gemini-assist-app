@@ -3,9 +3,8 @@ import pandas as pd
 import google.generativeai as genai
 from io import BytesIO
 from docx import Document
-from docx.shared import Pt, Inches
-from docx.oxml.ns import qn
-from docx.shared import RGBColor
+from docx.shared import Pt, Inches, RGBColor
+import re
 
 # =======================
 # Configuración API KEY
@@ -26,7 +25,7 @@ else:
 def generar_word(informe, df):
     doc = Document()
 
-    # PORTADA
+    # Portada
     section = doc.sections[0]
     section.top_margin = Inches(1)
     section.bottom_margin = Inches(1)
@@ -35,7 +34,6 @@ def generar_word(informe, df):
 
     doc.add_heading("Gemini Assist – Informe Predictivo de Mantenimiento", 0)
 
-    # Logo
     try:
         doc.add_picture("images/logo.png", width=Inches(1.5))
     except:
@@ -62,37 +60,56 @@ def generar_word(informe, df):
     doc.add_paragraph("\n")
 
     # =======================
-    # Sección de Informe Detallado
+    # Procesar texto del informe
     # =======================
     doc.add_heading("📄 Informe Detallado", level=1)
 
-    # Convertir el texto de Gemini en párrafos y títulos
-    for linea in informe.split("\n"):
-        if linea.strip().startswith("## "):
+    lineas = informe.split("\n")
+    tabla_buffer = []
+    dentro_tabla = False
+
+    for linea in lineas:
+        if not linea.strip():
+            continue
+
+        # Encabezados
+        if linea.startswith("## "):
             doc.add_heading(linea.replace("##", "").strip(), level=2)
-        elif linea.strip().startswith("### "):
+        elif linea.startswith("### "):
             doc.add_heading(linea.replace("###", "").strip(), level=3)
-        elif linea.strip().startswith("- "):
-            p = doc.add_paragraph(linea.replace("- ", "").strip(), style="List Bullet")
-            p_format = p.paragraph_format
-            p_format.space_after = Pt(6)
-        elif linea.strip().startswith("1.") or linea.strip().startswith("2."):
-            p = doc.add_paragraph(linea.strip(), style="List Number")
-            p_format = p.paragraph_format
-            p_format.space_after = Pt(6)
-        elif "|" in linea and "---" not in linea:  # Tablas estilo Markdown
+
+        # Listas
+        elif linea.startswith("- "):
+            doc.add_paragraph(linea[2:].strip(), style="List Bullet")
+        elif re.match(r"^\d+\.", linea.strip()):
+            doc.add_paragraph(linea.strip(), style="List Number")
+
+        # Tablas tipo Markdown
+        elif "|" in linea:
+            if "---" in linea:  # separador de tabla
+                continue
             cols = [c.strip() for c in linea.split("|") if c.strip()]
-            if cols:
-                tbl = doc.add_table(rows=1, cols=len(cols))
-                tbl.style = "Medium Shading 1 Accent 1"
-                row_cells = tbl.rows[0].cells
-                for i, col in enumerate(cols):
-                    row_cells[i].text = col
+            if not dentro_tabla:
+                dentro_tabla = True
+                tabla_buffer = [cols]
+            else:
+                tabla_buffer.append(cols)
         else:
-            if linea.strip():
-                p = doc.add_paragraph(linea.strip())
-                p_format = p.paragraph_format
-                p_format.space_after = Pt(6)
+            # Si veníamos construyendo tabla, la cerramos
+            if dentro_tabla and tabla_buffer:
+                tbl = doc.add_table(rows=1, cols=len(tabla_buffer[0]))
+                tbl.style = "Medium Shading 1 Accent 1"
+                hdr_cells = tbl.rows[0].cells
+                for i, col in enumerate(tabla_buffer[0]):
+                    hdr_cells[i].text = col
+                for row in tabla_buffer[1:]:
+                    row_cells = tbl.add_row().cells
+                    for i, col in enumerate(row):
+                        row_cells[i].text = col
+                tabla_buffer = []
+                dentro_tabla = False
+            # Texto normal
+            doc.add_paragraph(linea.strip())
 
     # Fuente general
     style = doc.styles["Normal"]
