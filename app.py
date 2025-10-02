@@ -5,36 +5,20 @@ from fpdf import FPDF
 from io import BytesIO
 import os
 
-# ==============================
-# Configuración de la página
-# ==============================
-st.set_page_config(page_title="Gemini Assist – Predictivo de Mantenimiento", page_icon="🛠️", layout="wide")
+# =======================
+# Configuración API KEY
+# =======================
+API_KEY = st.secrets["API_KEY"]
+genai.configure(api_key=API_KEY)
 
-# Mostrar logo en la app
-st.image("images/logo.png", width=120)
-st.title("🛠️ Predictivo de Mantenimiento")
-
-# ==============================
-# Configuración API Key
-# ==============================
-API_KEY = st.secrets.get("API_KEY") or os.getenv("API_KEY")
-if not API_KEY:
-    st.error("❌ No se encontró la API_KEY. Configúrala en Streamlit Cloud (Secrets) o en el entorno local.")
-else:
-    genai.configure(api_key=API_KEY)
-
-# ==============================
-# Subir archivo Excel
-# ==============================
-uploaded_file = st.file_uploader("Sube el archivo de activos (Excel)", type=["xlsx"])
-
-# ==============================
-# Función para generar PDF
-# ==============================
+# =======================
+# Clase PDF personalizada
+# =======================
 class PDF(FPDF):
     def header(self):
+        # Logo si existe
         if os.path.exists("images/logo.png"):
-            self.image("images/logo.png", 10, 8, 25)  # Logo en PDF
+            self.image("images/logo.png", 10, 8, 25)
         self.set_font("DejaVu", "B", 12)
         self.cell(0, 10, "Informe Predictivo de Mantenimiento – Gemini Assist", ln=True, align="C")
         self.ln(10)
@@ -43,30 +27,44 @@ def generar_pdf(texto):
     pdf = PDF()
     pdf.add_page()
 
-    # Fuentes DejaVu para soporte Unicode
+    # Registrar fuentes DejaVu
     pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
     pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
-    pdf.set_font("DejaVu", size=12)
 
-    # Contenido
+    # Texto normal
+    pdf.set_font("DejaVu", "", 12)
     pdf.multi_cell(0, 10, texto)
 
-    # Guardar PDF en memoria
     pdf_output = BytesIO()
-    pdf.output(pdf_output, "S")
+    pdf_bytes = pdf.output(dest="S").encode("latin1")  # Exportar en bytes
+    pdf_output.write(pdf_bytes)
     return pdf_output.getvalue()
 
-# ==============================
-# Procesar Excel y generar informe
-# ==============================
+# =======================
+# Interfaz Streamlit
+# =======================
+st.set_page_config(page_title="Gemini Assist", layout="centered")
+
+st.title("🔧 Predictivo de Mantenimiento")
+
+# Logo arriba en la app
+if os.path.exists("images/logo.png"):
+    st.image("images/logo.png", width=120)
+
+# =======================
+# Subida de archivo Excel
+# =======================
+uploaded_file = st.file_uploader("Sube el archivo de activos (Excel)", type=["xlsx"])
+
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     st.success("✅ Archivo cargado correctamente")
-    st.dataframe(df)  # Ahora muestra todos los registros
+    st.dataframe(df.head())
 
     if st.button("Generar Informe"):
-        with st.spinner("⏳ Generando el informe con Gemini Assist..."):
+        with st.spinner("⏳ Generando informe con Gemini Assist..."):
             try:
+                # Convertir tabla a texto para el prompt
                 tabla_texto = df.to_string(index=False)
 
                 prompt = f"""
@@ -84,21 +82,23 @@ if uploaded_file:
                 5. Un informe ejecutivo de máximo 5 líneas para Dirección.
                 """
 
+                # Llamada a Gemini
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 response = model.generate_content(prompt)
                 informe = response.text
 
-                st.subheader("📋 Informe Generado")
+                # Mostrar en la app
+                st.subheader("📄 Informe Generado")
                 st.write(informe)
 
-                # Generar PDF y ofrecer descarga
+                # Botón de descarga
                 pdf_bytes = generar_pdf(informe)
                 st.download_button(
-                    label="📥 Descargar Informe PDF",
+                    label="⬇️ Descargar Informe PDF",
                     data=pdf_bytes,
-                    file_name="informe_gemini.pdf",
+                    file_name="informe_predictivo.pdf",
                     mime="application/pdf"
                 )
 
             except Exception as e:
-                st.error(f"❌ Error al procesar el archivo: {str(e)}")
+                st.error(f"❌ Error al procesar el archivo: {e}")
