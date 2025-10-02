@@ -88,18 +88,18 @@ if uploaded_file:
                 st.subheader("📄 Informe Generado")
                 st.write(informe)
 		
-		        # ===============================
-                # Botón de descarga Word
-                # ===============================
-                try:
-		               if informe:
-                                word_bytes = generar_word(informe)
-                                st.download_button(
-                                    label="⬇️ Descargar Informe Word",
-                                    data=word_bytes,
-                                    file_name="informe_predictivo.docx",
-                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                          )
+# ===============================
+# Botón de descarga Word
+# ===============================
+try:
+    if informe:
+        word_bytes = generar_word(informe)
+        st.download_button(
+            label="📄 Descargar Informe en Word",
+            data=word_bytes,
+            file_name="informe_predictivo.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+except Exception as e:
+    st.error(f"❌ Error al procesar el archivo: {e}")
 
-                except Exception as e:
-                        st.error(f"❌ Error al procesar el archivo: {e}")
