@@ -101,5 +101,5 @@ if uploaded_file:
                                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                           )
 
-               except Exception as e:
+                except Exception as e:
                         st.error(f"❌ Error al procesar el archivo: {e}")
