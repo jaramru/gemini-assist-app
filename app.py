@@ -26,11 +26,13 @@ st.title("🔧 Gemini Assist – Informe Predictivo de Mantenimiento")
 # CONFIGURACIÓN API KEY
 # ==============================
 API_KEY = os.getenv("GOOGLE_API_KEY")
+
 if not API_KEY:
     st.error("❌ No se encontró la API KEY. Configúrala en Streamlit Cloud en [Secrets].")
 else:
     try:
         genai.configure(api_key=API_KEY)
+        st.success("✅ API KEY cargada correctamente y modelo configurado.")
     except Exception as e:
         st.error(f"⚠️ Error configurando la API KEY: {e}")
 
@@ -196,3 +198,4 @@ if uploaded_file:
 
             except Exception as e:
                 st.error(f"❌ Error al procesar el archivo: {e}")
+
