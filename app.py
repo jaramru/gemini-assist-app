@@ -3,17 +3,21 @@ import pandas as pd
 from fpdf import FPDF
 import google.generativeai as genai
 from datetime import datetime
+import os
+import io
 
 # ========================
 # Configuración inicial
 # ========================
-st.set_page_config(page_title="Predictivo de Mantenimiento", layout="centered")
+st.set_page_config(page_title="Gemini Assist - Informe Predictivo de Mantenimiento", layout="centered")
 
 # Mostrar logo en la app
-st.image("images/logo.png", width=120)
+if os.path.exists("images/logo.png"):
+    st.image("images/logo.png", width=120)
+
 st.title("🔧 Predictivo de Mantenimiento")
 
-# Configurar API KEY desde secrets
+# Configuración de API KEY desde secrets
 API_KEY = st.secrets["API_KEY"]
 genai.configure(api_key=API_KEY)
 
@@ -22,8 +26,8 @@ genai.configure(api_key=API_KEY)
 # ========================
 class PDF(FPDF):
     def header(self):
-        # Logo
-        self.image("images/logo.png", 10, 8, 25)
+        if os.path.exists("images/logo.png"):
+            self.image("images/logo.png", 10, 8, 25)
         self.set_font("DejaVu", "B", 12)
         self.cell(0, 10, "Gemini Assist - Informe de Mantenimiento Predictivo", border=False, ln=True, align="C")
         self.ln(5)
@@ -40,12 +44,12 @@ def generar_pdf(informe_texto):
     pdf = PDF()
     pdf.add_page()
 
-    # Registrar fuentes DejaVu (normal, bold, italic)
+    # Registrar fuentes DejaVu (normal, negrita, cursiva)
     pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
     pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
     pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
 
-    # Título principal
+    # Título
     pdf.set_font("DejaVu", "B", 16)
     pdf.cell(0, 10, "INFORME PREDICTIVO DE MANTENIMIENTO", ln=True, align="C")
     pdf.ln(10)
@@ -55,11 +59,13 @@ def generar_pdf(informe_texto):
     pdf.cell(0, 10, f"Fecha: {datetime.today().strftime('%d-%m-%Y')}", ln=True, align="R")
     pdf.ln(10)
 
-    # Cuerpo del informe
+    # Contenido
     pdf.set_font("DejaVu", "", 12)
     pdf.multi_cell(0, 8, informe_texto, align="J")
 
-    return pdf.output(dest="S").encode("latin-1")
+    # Exportar PDF como bytes
+    pdf_bytes = pdf.output(dest="S").encode("latin-1")
+    return pdf_bytes
 
 # ========================
 # Subir archivo Excel
