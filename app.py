@@ -18,7 +18,7 @@ class PDF(FPDF):
     def header(self):
         if os.path.exists("images/logo.png"):
             self.image("images/logo.png", 10, 8, 25)
-        self.set_font("Arial", "B", 12)   # 👉 usamos Arial
+        self.set_font("DejaVu", "B", 12)   # 👉 usamos Arial
         self.cell(0, 10, "Informe Predictivo de Mantenimiento – Gemini Assist", ln=True, align="C")
         self.ln(10)
 
@@ -26,17 +26,19 @@ def generar_pdf(texto):
     pdf = PDF()
     pdf.add_page()
 
-    # Registrar fuentes DejaVu (ya están en la carpeta)
+    # Registrar fuentes DejaVu (Unicode completo)
     pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
     pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
     pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
     pdf.add_font("DejaVu", "BI", "DejaVuSans-BoldOblique.ttf", uni=True)
 
-    # Usar DejaVu como fuente por defecto
+    # Forzar fuente DejaVu siempre
     pdf.set_font("DejaVu", "", 12)
+
+    # Añadir texto
     pdf.multi_cell(0, 10, texto)
 
-    # Exportar PDF en memoria
+    # Generar PDF en memoria
     pdf_output = BytesIO()
     pdf_bytes = pdf.output(dest="S").encode("latin1")
     pdf_output.write(pdf_bytes)
