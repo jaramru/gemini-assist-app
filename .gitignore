@@ -1,0 +1,45 @@
+# ============================
+# Archivos de sistema Mac
+# ============================
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ============================
+# Archivos de sistema Windows
+# ============================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ============================
+# Python
+# ============================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Archivos de configuración locales
+*.local
+*.log
+
+# ============================
+# Streamlit
+# ============================
+.streamlit/secrets.toml
+
+# ============================
+# Archivos temporales
+# ============================
+*.swp
+*.swo
+*.bak
+*.tmp
+
