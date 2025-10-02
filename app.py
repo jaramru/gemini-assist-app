@@ -2,130 +2,179 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 from docx import Document
-from docx.shared import Pt, Inches
+from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from io import BytesIO
-import os
+import re
 from datetime import datetime
 
-# ======================
-# CONFIGURACIÓN INICIAL
-# ======================
-st.set_page_config(page_title="Gemini Assist", layout="wide")
+# ==============================
+# Función para limpiar el texto
+# ==============================
+def limpiar_texto(texto):
+    """Elimina asteriscos y formato Markdown del texto generado."""
+    texto = re.sub(r"\*\*(.*?)\*\*", r"\1", texto)  # negritas
+    texto = re.sub(r"^\*\s*", "", texto, flags=re.MULTILINE)  # viñetas tipo *
+    texto = texto.replace("*", "")  # asteriscos sueltos
+    return texto.strip()
 
-# Logo arriba a la izquierda
-st.image("images/logo.png", width=120)
-st.title("💡 Gemini Assist – Informe Predictivo de Activos Hospitalarios")
+# ==============================
+# Generar Word con estilo neutro
+# ==============================
+def generar_word(informe, df):
+    # Limpieza aquí 👇
+    informe_limpio = limpiar_texto(informe)
 
-# Clave API desde variables de entorno
-API_KEY = os.getenv("GOOGLE_API_KEY")
-if not API_KEY:
-    st.error("❌ No se encontró la API KEY. Configúrala en Streamlit Cloud.")
-else:
-    genai.configure(api_key=API_KEY)
-
-# ======================
-# FUNCIÓN → GENERAR WORD
-# ======================
-def generar_word(informe):
     doc = Document()
 
-    # Portada
-    sec = doc.sections[0]
-    sec.page_height, sec.page_width = Inches(11.69), Inches(8.27)  # A4 horizontal
-    sec.top_margin, sec.bottom_margin = Inches(1), Inches(1)
-    sec.left_margin, sec.right_margin = Inches(1), Inches(1)
+    # ---------- PORTADA ----------
+    section = doc.sections[0]
+    section.top_margin = Inches(1)
+    section.bottom_margin = Inches(1)
+    section.left_margin = Inches(1)
+    section.right_margin = Inches(1)
 
-    doc.add_picture("images/logo.png", width=Inches(2))
-    titulo = doc.add_paragraph("Gemini Assist\nInforme de Mantenimiento Predictivo")
+    # Logo centrado
+    try:
+        p = doc.add_paragraph()
+        run = p.add_run()
+        run.add_picture("images/logo.png", width=Inches(2))
+        p.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    except:
+        pass
+
+    # Título principal
+    titulo = doc.add_paragraph("Gemini Assist")
     titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
     run = titulo.runs[0]
-    run.font.size = Pt(20)
+    run.font.size = Pt(28)
     run.bold = True
+    run.font.color.rgb = RGBColor(0, 0, 0)
 
-    doc.add_paragraph(f"Fecha: {datetime.today().strftime('%d-%m-%Y')}").alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    # Subtítulo
+    subtitulo = doc.add_paragraph("Informe Predictivo de Mantenimiento Hospitalario")
+    subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    run = subtitulo.runs[0]
+    run.font.size = Pt(14)
+    run.font.color.rgb = RGBColor(100, 100, 100)
+
+    # Fecha
+    fecha = doc.add_paragraph(datetime.now().strftime("%d/%m/%Y"))
+    fecha.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    run = fecha.runs[0]
+    run.font.size = Pt(12)
+    run.font.color.rgb = RGBColor(80, 80, 80)
+
     doc.add_page_break()
 
-    # Contenido del informe
-    for linea in informe.split("\n"):
-        linea = linea.strip()
-        if not linea:
+    # ---------- RANKING TABLA ----------
+    doc.add_heading("📊 Ranking de Riesgo (Top 10 activos)", level=1)
+    table = doc.add_table(rows=1, cols=len(df.columns))
+    table.style = "Table Grid"
+
+    # Cabecera
+    hdr_cells = table.rows[0].cells
+    for i, col in enumerate(df.columns):
+        run = hdr_cells[i].paragraphs[0].add_run(str(col))
+        run.bold = True
+
+    # Filas (máx 10)
+    for _, row in df.head(10).iterrows():
+        row_cells = table.add_row().cells
+        for i, value in enumerate(row):
+            row_cells[i].text = str(value)
+
+    doc.add_paragraph("\n")
+
+    # ---------- INFORME DETALLADO ----------
+    doc.add_heading("📄 Informe Detallado", level=1)
+
+    for linea in informe_limpio.split("\n"):
+        if not linea.strip():
             continue
 
-        # Títulos
-        if linea.startswith("###") or linea.startswith("##") or linea.startswith("**"):
-            p = doc.add_paragraph(linea.replace("#", "").replace("**", "").strip())
-            p.runs[0].font.size = Pt(14)
-            p.runs[0].bold = True
-            p.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
-        # Listas numeradas
-        elif linea[0].isdigit() and "." in linea[:4]:
-            p = doc.add_paragraph(linea.replace("**", "").strip(), style="List Number")
-            p.runs[0].font.size = Pt(11)
-        # Texto normal
-        else:
-            p = doc.add_paragraph(linea.replace("**", "").strip())
-            p.runs[0].font.size = Pt(11)
+        if linea.startswith("### "):
+            doc.add_heading(linea.replace("### ", "").strip(), level=2)
+        elif linea.startswith("## "):
+            doc.add_heading(linea.replace("## ", "").strip(), level=3)
+        elif re.match(r"^\d+\.", linea.strip()):
+            # Listas numeradas
+            p = doc.add_paragraph(linea.strip(), style="List Number")
             p.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+        elif linea.startswith("- "):
+            # Bullets
+            p = doc.add_paragraph(linea.replace("- ", ""), style="List Bullet")
+            p.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+        else:
+            # Párrafo normal justificado
+            p = doc.add_paragraph(linea.strip())
+            p.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+            run = p.runs[0]
+            run.font.size = Pt(11)
+            run.font.name = "Calibri"
 
-    # Guardar en memoria
+    # ---------- EXPORTAR ----------
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     return buffer
 
-# ======================
-# SUBIDA DE ARCHIVO
-# ======================
+# ==============================
+# Interfaz Streamlit
+# ==============================
+st.set_page_config(page_title="Gemini Assist", layout="wide")
+
+try:
+    st.image("images/logo.png", width=150)
+except:
+    st.write("")
+
+st.title("🔧 Gemini Assist – Informe Predictivo de Mantenimiento")
+
 uploaded_file = st.file_uploader("📂 Sube el archivo de activos (Excel)", type=["xlsx"])
 
 if uploaded_file:
-    try:
-        df = pd.read_excel(uploaded_file)
-        st.success("✅ Archivo cargado correctamente")
-        st.dataframe(df)
+    df = pd.read_excel(uploaded_file)
+    st.success("✅ Archivo cargado correctamente")
+    st.dataframe(df)
 
-        if st.button("⚡ Generar Informe", type="primary"):
-            with st.spinner("Generando informe con Gemini Assist... ⏳"):
-                tabla_texto = df.to_string(index=False)
+    if st.button("🚀 Generar Informe"):
+        with st.spinner("🧠 Generando informe con Gemini Assist..."):
+            try:
+                tabla_texto = df.head(10).to_string(index=False)
 
                 prompt = f"""
-                Eres Gemini Assist, un sistema experto en mantenimiento hospitalario.
-                Analiza la siguiente tabla de activos:
+                Eres Gemini Assist, un sistema predictivo de mantenimiento hospitalario.
 
+                Aquí tienes los datos de activos hospitalarios:
                 {tabla_texto}
 
-                Con esta información, genera un informe con los apartados:
-                1. Ranking de riesgo de fallo en los próximos 3 meses (top 10 activos).
+                Con esta tabla, necesito que hagas lo siguiente:
+                1. Ranking de riesgo de fallo en los próximos 3 meses (máx 10 activos).
                 2. Acciones preventivas para los 3 activos más críticos.
                 3. Estimación de ahorro en € y horas si aplico esas medidas.
-                4. Panel de alertas clasificando cada activo en: Bajo, Medio o Alto.
-                5. Informe ejecutivo final (máximo 5 líneas).
-
-                ➡️ Importante:
-                - NO uses asteriscos ni símbolos raros.
-                - Usa títulos claros y texto justificado.
-                - Estilo neutro, profesional y en blanco y negro.
+                4. Panel de alertas clasificando cada activo en:
+                   🟢 Bajo riesgo, 🟡 Riesgo medio, 🔴 Riesgo alto.
+                5. Un informe ejecutivo de máximo 5 líneas para Dirección.
                 """
 
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 response = model.generate_content(prompt)
                 informe = response.text
 
-                if informe:
-                    st.success("✅ Informe generado correctamente")
-                    st.text_area("📋 Informe generado:", informe, height=300)
+                informe_limpio = limpiar_texto(informe)
 
-                    # Botón descarga Word
-                    word_bytes = generar_word(informe)
-                    st.download_button(
-                        label="⬇️ Descargar Informe en Word",
-                        data=word_bytes,
-                        file_name="informe_predictivo.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-                else:
-                    st.error("⚠️ No se pudo generar el informe, intenta de nuevo.")
+                st.subheader("📋 Informe Generado")
+                st.write(informe_limpio)
 
-    except Exception as e:
-        st.error(f"❌ Error al procesar el archivo: {e}")
+                # Botón de descarga Word (ya usa texto limpio dentro)
+                word_bytes = generar_word(informe, df)
+                st.download_button(
+                    label="⬇️ Descargar Informe Word",
+                    data=word_bytes,
+                    file_name="informe_predictivo.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+
+            except Exception as e:
+                st.error(f"❌ Error al procesar el archivo: {e}")
