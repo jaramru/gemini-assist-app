@@ -4,6 +4,8 @@ import google.generativeai as genai
 from fpdf import FPDF
 from io import BytesIO
 import os
+from docx import Document
+
 
 # =======================
 # Configuración API KEY
@@ -21,28 +23,23 @@ class PDF(FPDF):
         self.set_font("DejaVu", "B", 12)   # 👉 usamos Arial
         self.cell(0, 10, "Informe Predictivo de Mantenimiento – Gemini Assist", ln=True, align="C")
         self.ln(10)
+# =======================
+# Generar Word
+# =======================
+def generar_word(texto):
+    doc = Document()
+    doc.add_heading("Informe Predictivo de Mantenimiento", 0)
 
-def generar_pdf(texto):
-    pdf = PDF()
-    pdf.add_page()
+    # Dividimos el texto en líneas y las añadimos al Word
+    for linea in texto.split("\n"):
+        if linea.strip():
+            doc.add_paragraph(linea)
 
-    # Registrar fuentes DejaVu (Unicode completo)
-    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-    pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
-    pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
-    pdf.add_font("DejaVu", "BI", "DejaVuSans-BoldOblique.ttf", uni=True)
-
-    # Forzar fuente DejaVu siempre
-    pdf.set_font("DejaVu", "", 12)
-
-    # Añadir texto
-    pdf.multi_cell(0, 10, texto)
-
-    # Generar PDF en memoria
-    pdf_output = BytesIO()
-    pdf_bytes = pdf.output(dest="S").encode("latin1")
-    pdf_output.write(pdf_bytes)
-    return pdf_output.getvalue()
+    # Guardamos en memoria
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
 
 
 # =======================
@@ -90,15 +87,18 @@ if uploaded_file:
 
                 st.subheader("📄 Informe Generado")
                 st.write(informe)
+		
+		# ===============================
+# Botón de descarga Word
+# ===============================
+try:
+    word_bytes = generar_word(informe)
+    st.download_button(
+        label="⬇️ Descargar Informe Word",
+        data=word_bytes,
+        file_name="informe_predictivo.docx",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
 
-                # Botón de descarga PDF
-                pdf_bytes = generar_pdf(informe)
-                st.download_button(
-                    label="⬇️ Descargar Informe PDF",
-                    data=pdf_bytes,
-                    file_name="informe_predictivo.pdf",
-                    mime="application/pdf"
-                )
-
-            except Exception as e:
-                st.error(f"❌ Error al procesar el archivo: {e}")
+except Exception as e:
+    st.error(f"❌ Error al procesar el archivo: {e}")
