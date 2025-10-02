@@ -1,92 +1,76 @@
 import streamlit as st
 import pandas as pd
-from fpdf import FPDF
 import google.generativeai as genai
-from datetime import datetime
+from fpdf import FPDF
 import os
-import io
 
-# ========================
-# Configuración inicial
-# ========================
-st.set_page_config(page_title="Gemini Assist - Informe Predictivo de Mantenimiento", layout="centered")
+# ==============================
+# CONFIGURACIÓN DE LA APP
+# ==============================
+st.set_page_config(page_title="Gemini Assist – Predictivo de Mantenimiento", layout="centered")
 
-# Mostrar logo en la app
-if os.path.exists("images/logo.png"):
-    st.image("images/logo.png", width=120)
+# Logo y título en la interfaz
+st.image("images/logo.png", width=120)
+st.markdown("<h1 style='color:#2E86C1;'>🔧 Predictivo de Mantenimiento</h1>", unsafe_allow_html=True)
 
-st.title("🔧 Predictivo de Mantenimiento")
+# Inicializamos la variable informe para evitar NameError
+informe = None
 
-# Configuración de API KEY desde secrets
+# ==============================
+# CONFIGURACIÓN DE LA API
+# ==============================
 API_KEY = st.secrets["API_KEY"]
 genai.configure(api_key=API_KEY)
 
-# ========================
-# Clase PDF
-# ========================
+# ==============================
+# FUNCIÓN PARA CREAR PDF
+# ==============================
 class PDF(FPDF):
     def header(self):
+        # Logo arriba a la izquierda
         if os.path.exists("images/logo.png"):
-            self.image("images/logo.png", 10, 8, 25)
+            self.image("images/logo.png", 10, 8, 20)
         self.set_font("DejaVu", "B", 12)
-        self.cell(0, 10, "Gemini Assist - Informe de Mantenimiento Predictivo", border=False, ln=True, align="C")
-        self.ln(5)
+        self.cell(0, 10, "Gemini Assist – Informe de Mantenimiento Predictivo", ln=True, align="C")
+        self.ln(10)
 
     def footer(self):
         self.set_y(-15)
         self.set_font("DejaVu", "I", 8)
         self.cell(0, 10, f"Página {self.page_no()}", align="C")
 
-# ========================
-# Función generar PDF
-# ========================
-def generar_pdf(informe):
-    pdf = FPDF()
-    pdf.add_page()
-
-    # Registrar fuentes DejaVu (asegúrate de tenerlas en el repo)
+def generar_pdf(informe_texto):
+    pdf = PDF()
     pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
     pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
     pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
-    pdf.add_font("DejaVu", "BI", "DejaVuSans-BoldOblique.ttf", uni=True)
 
     pdf.set_font("DejaVu", "B", 16)
-    pdf.cell(0, 10, "Gemini Assist – Informe de Mantenimiento Predictivo", ln=True, align="C")
+    pdf.add_page()
 
-    pdf.ln(10)
+    # Portada
+    pdf.cell(0, 10, "📊 Informe Predictivo de Mantenimiento", ln=True, align="C")
+    pdf.ln(20)
+
+    # Contenido
     pdf.set_font("DejaVu", "", 12)
-    pdf.multi_cell(0, 10, informe)
+    pdf.multi_cell(0, 10, informe_texto)
 
-    # Guardar en memoria
-    pdf_buffer = io.BytesIO()
-    pdf.output(pdf_buffer, "F")  # "F" para escribir en el buffer
-    pdf_buffer.seek(0)
-    return pdf_buffer
+    return pdf.output(dest="S").encode("latin-1")
 
-# Mostrar botón de descarga en Streamlit
-if informe:
-    pdf_file = generar_pdf(informe)
-    st.download_button(
-        label="⬇️ Descargar Informe PDF",
-        data=pdf_file,
-        file_name="Informe_GeminiAssist.pdf",
-        mime="application/pdf"
-    )
-
-
-# ========================
-# Subir archivo Excel
-# ========================
+# ==============================
+# SUBIDA DE ARCHIVO EXCEL
+# ==============================
 uploaded_file = st.file_uploader("Sube el archivo de activos (Excel)", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     st.success("✅ Archivo cargado correctamente")
-    st.dataframe(df)
+    st.dataframe(df.head())
 
-    if st.button("Generar Informe"):
-        with st.spinner("🔄 Generando informe, por favor espera..."):
-            # Convertir tabla a texto para el prompt
+    if st.button("🚀 Generar Informe"):
+        with st.spinner("🔄 Procesando el informe, espera unos segundos..."):
+            # Convertir tabla a texto para Gemini
             tabla_texto = df.head(10).to_string(index=False)
 
             prompt = f"""
@@ -109,20 +93,24 @@ if uploaded_file:
                 response = model.generate_content(prompt)
                 informe = response.text
 
-                # Mostrar informe en la app
-                st.subheader("📋 Informe Generado")
+                st.success("✅ Informe generado con éxito")
+                st.markdown("### 📄 Informe")
                 st.write(informe)
 
-                # Generar PDF
-                pdf_bytes = generar_pdf(informe)
-
-                # Botón de descarga
-                st.download_button(
-                    label="📥 Descargar Informe en PDF",
-                    data=pdf_bytes,
-                    file_name=f"Informe_GeminiAssist_{datetime.today().strftime('%Y%m%d')}.pdf",
-                    mime="application/pdf"
-                )
-
             except Exception as e:
-                st.error(f"❌ Error al procesar el archivo: {e}")
+                st.error(f"❌ Error al generar el informe: {e}")
+
+# ==============================
+# BOTÓN DE DESCARGA PDF
+# ==============================
+if informe:
+    try:
+        pdf_file = generar_pdf(informe)
+        st.download_button(
+            label="⬇️ Descargar Informe PDF",
+            data=pdf_file,
+            file_name="Informe_GeminiAssist.pdf",
+            mime="application/pdf"
+        )
+    except Exception as e:
+        st.error(f"❌ Error al procesar el archivo: {e}")
