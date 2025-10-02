@@ -2,115 +2,88 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 from docx import Document
-from docx.shared import Pt, Inches
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-from io import BytesIO
-import os
+from docx.shared import Pt, RGBColor, Inches
+import io
+import re
 
-# =======================
-# Configuración inicial
-# =======================
-st.set_page_config(page_title="Gemini Assist", layout="wide")
+# ==============================
+# Función para limpiar el texto
+# ==============================
+def limpiar_texto(texto):
+    """Elimina asteriscos y formato Markdown del texto generado."""
+    texto = re.sub(r"\*\*(.*?)\*\*", r"\1", texto)  # negritas
+    texto = re.sub(r"^\*\s*", "", texto, flags=re.MULTILINE)  # viñetas
+    texto = texto.replace("*", "")  # asteriscos sueltos
+    return texto
 
-# Mostrar logo arriba
-try:
-    st.image("images/logo.png", width=200)
-except:
-    st.warning("⚠️ No se encontró el logo en la carpeta 'images/'.")
-
-st.title("🔧 Gemini Assist – Informe Predictivo de Mantenimiento")
-
-# Configuración de Gemini API
-genai.configure(api_key=st.secrets["API_KEY"])
-
-
-# =======================
-# Función para generar Word
-# =======================
-def generar_word(informe, df):
+# ==============================
+# Generar Word
+# ==============================
+def generar_word(informe):
     doc = Document()
 
-    # Portada
-    section = doc.sections[0]
-    section.top_margin = Inches(1)
-    section.bottom_margin = Inches(1)
-    section.left_margin = Inches(1)
-    section.right_margin = Inches(1)
-
+    # Logo si existe
     try:
-        doc.add_picture("images/logo.png", width=Inches(2))
+        doc.add_picture("images/logo.png", width=Inches(1.5))
     except:
-        pass
+        pass  
 
-    titulo = doc.add_paragraph("Gemini Assist\nInforme Predictivo de Mantenimiento")
-    titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    run = titulo.runs[0]
-    run.font.size = Pt(20)
-    run.bold = True
+    # Título
+    titulo = doc.add_heading("Gemini Assist – Informe Predictivo de Mantenimiento", 0)
+    titulo.alignment = 1
 
-    doc.add_page_break()
+    # Texto limpio
+    informe_limpio = limpiar_texto(informe)
 
-    # Ranking tabla
-    doc.add_heading("📊 Ranking de Riesgo (Top 10 activos)", level=1)
-    table = doc.add_table(rows=1, cols=len(df.columns))
-    table.style = "Table Grid"
-
-    hdr_cells = table.rows[0].cells
-    for i, col in enumerate(df.columns):
-        run = hdr_cells[i].paragraphs[0].add_run(str(col))
-        run.bold = True
-
-    for _, row in df.head(10).iterrows():
-        row_cells = table.add_row().cells
-        for i, value in enumerate(row):
-            row_cells[i].text = str(value)
-
-    doc.add_paragraph("\n")
-
-    # Informe Detallado
-    doc.add_heading("📄 Informe Detallado", level=1)
-
-    for line in informe.split("\n"):
-        line = line.strip()
-        if not line:
+    for linea in informe_limpio.split("\n"):
+        if linea.strip() == "":
             continue
-
-        if line.startswith("### "):  # Encabezado nivel 2
-            doc.add_heading(line.replace("### ", "").strip(), level=2)
-        elif line.startswith("**") and line.endswith("**"):  # Negritas solas
-            p = doc.add_paragraph()
-            run = p.add_run(line.replace("**", ""))
-            run.bold = True
-        elif "|" in line and "---" not in line:  # Línea de tabla tipo markdown
-            cols = [c.strip() for c in line.split("|") if c.strip()]
-            table = doc.add_table(rows=1, cols=len(cols))
-            table.style = "Table Grid"
-            row_cells = table.rows[0].cells
-            for i, val in enumerate(cols):
-                row_cells[i].text = val
+        if linea.startswith("### "):  # Título principal
+            doc.add_heading(linea.replace("### ", "").strip(), level=1)
+        elif linea.startswith("## "):  # Subtítulo
+            doc.add_heading(linea.replace("## ", "").strip(), level=2)
+        elif "|" in linea and "---" not in linea:  # Tablas en formato markdown
+            cols = [c.strip() for c in linea.split("|") if c.strip()]
+            if not hasattr(doc, "_table_started"):
+                table = doc.add_table(rows=1, cols=len(cols))
+                table.style = "Table Grid"
+                hdr_cells = table.rows[0].cells
+                for i, col in enumerate(cols):
+                    hdr_cells[i].text = col
+                doc._table_started = table
+            else:
+                row_cells = doc._table_started.add_row().cells
+                for i, col in enumerate(cols):
+                    row_cells[i].text = col
         else:
-            doc.add_paragraph(line)
+            doc.add_paragraph(linea)
 
-    buffer = BytesIO()
+    # Exportar
+    buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     return buffer
 
+# ==============================
+# Interfaz Streamlit
+# ==============================
+st.set_page_config(page_title="Predictivo de Mantenimiento", layout="wide")
 
-# =======================
-# Subir archivo Excel
-# =======================
-uploaded_file = st.file_uploader("📂 Sube el archivo de activos (Excel)", type=["xlsx"])
+st.title("🔧 Predictivo de Mantenimiento")
+st.write("Sube el archivo de activos (Excel)")
+
+uploaded_file = st.file_uploader("Sube el archivo de activos (Excel)", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     st.success("✅ Archivo cargado correctamente")
     st.dataframe(df)
 
-    if st.button("🚀 Generar Informe"):
+    if st.button("Generar Informe"):
         with st.spinner("🧠 Generando informe con Gemini Assist..."):
             try:
-                tabla_texto = df.head(10).to_string(index=False)
+                # Preparar datos para el modelo
+                tabla_texto = df.to_string(index=False)
 
                 prompt = f"""
                 Eres Gemini Assist, un sistema predictivo de mantenimiento hospitalario.
@@ -127,15 +100,20 @@ if uploaded_file:
                 5. Un informe ejecutivo de máximo 5 líneas para Dirección.
                 """
 
-                model = genai.GenerativeModel("gemini-2.0-flash")
+                # Llamada a Gemini
+                model = genai.GenerativeModel("gemini-2.5-flash")
                 response = model.generate_content(prompt)
                 informe = response.text
 
-                st.subheader("📄 Informe Generado")
-                st.markdown(informe)
+                # Limpiar el texto
+                informe_limpio = limpiar_texto(informe)
 
-                # Botón descarga Word
-                word_bytes = generar_word(informe, df)
+                # Mostrar en pantalla
+                st.subheader("📄 Informe Generado")
+                st.write(informe_limpio)
+
+                # Botón para descargar Word
+                word_bytes = generar_word(informe)
                 st.download_button(
                     label="⬇️ Descargar Informe Word",
                     data=word_bytes,
