@@ -7,24 +7,47 @@ from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from io import BytesIO
 import re
 from datetime import datetime
+import os
 
 # ==============================
-# Función para limpiar el texto
+# CONFIGURACIÓN INICIAL
+# ==============================
+st.set_page_config(page_title="Gemini Assist", layout="wide")
+
+# Logo
+try:
+    st.image("images/logo.png", width=150)
+except:
+    st.write("")
+
+st.title("🔧 Gemini Assist – Informe Predictivo de Mantenimiento")
+
+# ==============================
+# CONFIGURACIÓN API KEY
+# ==============================
+API_KEY = os.getenv("GOOGLE_API_KEY")
+if not API_KEY:
+    st.error("❌ No se encontró la API KEY. Configúrala en Streamlit Cloud en [Secrets].")
+else:
+    try:
+        genai.configure(api_key=API_KEY)
+    except Exception as e:
+        st.error(f"⚠️ Error configurando la API KEY: {e}")
+
+# ==============================
+# FUNCIÓN PARA LIMPIAR TEXTO
 # ==============================
 def limpiar_texto(texto):
     """Elimina asteriscos y formato Markdown del texto generado."""
-    texto = re.sub(r"\*\*(.*?)\*\*", r"\1", texto)  # negritas
+    texto = re.sub(r"\*\*(.*?)\*\*", r"\1", texto)  # elimina negritas Markdown
     texto = re.sub(r"^\*\s*", "", texto, flags=re.MULTILINE)  # viñetas tipo *
-    texto = texto.replace("*", "")  # asteriscos sueltos
+    texto = texto.replace("*", "")  # elimina asteriscos sueltos
     return texto.strip()
 
 # ==============================
-# Generar Word con estilo neutro
+# FUNCIÓN → GENERAR WORD
 # ==============================
 def generar_word(informe, df):
-    # Limpieza aquí 👇
-    informe_limpio = limpiar_texto(informe)
-
     doc = Document()
 
     # ---------- PORTADA ----------
@@ -67,8 +90,8 @@ def generar_word(informe, df):
 
     doc.add_page_break()
 
-    # ---------- RANKING TABLA ----------
-    doc.add_heading("📊 Ranking de Riesgo (Top 10 activos)", level=1)
+    # ---------- TABLA DE ACTIVOS ----------
+    doc.add_heading("📊 Resumen de Activos", level=1)
     table = doc.add_table(rows=1, cols=len(df.columns))
     table.style = "Table Grid"
 
@@ -89,6 +112,7 @@ def generar_word(informe, df):
     # ---------- INFORME DETALLADO ----------
     doc.add_heading("📄 Informe Detallado", level=1)
 
+    informe_limpio = limpiar_texto(informe)
     for linea in informe_limpio.split("\n"):
         if not linea.strip():
             continue
@@ -120,17 +144,8 @@ def generar_word(informe, df):
     return buffer
 
 # ==============================
-# Interfaz Streamlit
+# INTERFAZ STREAMLIT
 # ==============================
-st.set_page_config(page_title="Gemini Assist", layout="wide")
-
-try:
-    st.image("images/logo.png", width=150)
-except:
-    st.write("")
-
-st.title("🔧 Gemini Assist – Informe Predictivo de Mantenimiento")
-
 uploaded_file = st.file_uploader("📂 Sube el archivo de activos (Excel)", type=["xlsx"])
 
 if uploaded_file:
@@ -141,7 +156,7 @@ if uploaded_file:
     if st.button("🚀 Generar Informe"):
         with st.spinner("🧠 Generando informe con Gemini Assist..."):
             try:
-                tabla_texto = df.head(10).to_string(index=False)
+                tabla_texto = df.to_string(index=False)
 
                 prompt = f"""
                 Eres Gemini Assist, un sistema predictivo de mantenimiento hospitalario.
@@ -149,13 +164,16 @@ if uploaded_file:
                 Aquí tienes los datos de activos hospitalarios:
                 {tabla_texto}
 
-                Con esta tabla, necesito que hagas lo siguiente:
-                1. Ranking de riesgo de fallo en los próximos 3 meses (máx 10 activos).
-                2. Acciones preventivas para los 3 activos más críticos.
-                3. Estimación de ahorro en € y horas si aplico esas medidas.
-                4. Panel de alertas clasificando cada activo en:
-                   🟢 Bajo riesgo, 🟡 Riesgo medio, 🔴 Riesgo alto.
-                5. Un informe ejecutivo de máximo 5 líneas para Dirección.
+                Con esta información, genera un informe con los apartados:
+                1. Acciones preventivas para los 3 activos más críticos.
+                2. Estimación de ahorro en € y horas si aplico esas medidas.
+                3. Panel de alertas clasificando cada activo en: Bajo, Medio o Alto.
+                4. Informe ejecutivo final (máximo 5 líneas).
+
+                ➡️ Importante:
+                - NO uses asteriscos ni símbolos raros.
+                - Usa títulos claros y texto justificado.
+                - Estilo neutro, profesional y en blanco y negro.
                 """
 
                 model = genai.GenerativeModel("gemini-2.5-flash")
@@ -167,7 +185,7 @@ if uploaded_file:
                 st.subheader("📋 Informe Generado")
                 st.write(informe_limpio)
 
-                # Botón de descarga Word (ya usa texto limpio dentro)
+                # Botón descarga Word
                 word_bytes = generar_word(informe, df)
                 st.download_button(
                     label="⬇️ Descargar Informe Word",
