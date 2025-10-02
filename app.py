@@ -26,15 +26,22 @@ def generar_pdf(texto):
     pdf = PDF()
     pdf.add_page()
 
-    # Arial normal
-    pdf.set_font("Arial", "", 11)
+    # Registrar fuentes DejaVu (ya están en la carpeta)
+    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
+    pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
+    pdf.add_font("DejaVu", "I", "DejaVuSans-Oblique.ttf", uni=True)
+    pdf.add_font("DejaVu", "BI", "DejaVuSans-BoldOblique.ttf", uni=True)
+
+    # Usar DejaVu como fuente por defecto
+    pdf.set_font("DejaVu", "", 12)
     pdf.multi_cell(0, 10, texto)
 
-    # Guardar PDF en memoria
+    # Exportar PDF en memoria
     pdf_output = BytesIO()
-    pdf_bytes = pdf.output(dest="S").encode("latin1")  # exportamos en bytes
+    pdf_bytes = pdf.output(dest="S").encode("latin1")
     pdf_output.write(pdf_bytes)
     return pdf_output.getvalue()
+
 
 # =======================
 # Interfaz Streamlit
