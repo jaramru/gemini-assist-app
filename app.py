@@ -16,10 +16,9 @@ genai.configure(api_key=API_KEY)
 # =======================
 class PDF(FPDF):
     def header(self):
-        # Logo si existe
         if os.path.exists("images/logo.png"):
             self.image("images/logo.png", 10, 8, 25)
-        self.set_font("DejaVu", "B", 12)
+        self.set_font("Arial", "B", 12)   # 👉 usamos Arial
         self.cell(0, 10, "Informe Predictivo de Mantenimiento – Gemini Assist", ln=True, align="C")
         self.ln(10)
 
@@ -27,16 +26,13 @@ def generar_pdf(texto):
     pdf = PDF()
     pdf.add_page()
 
-    # Registrar fuentes DejaVu
-    pdf.add_font("DejaVu", "", "DejaVuSans.ttf", uni=True)
-    pdf.add_font("DejaVu", "B", "DejaVuSans-Bold.ttf", uni=True)
-
-    # Texto normal
-    pdf.set_font("DejaVu", "", 12)
+    # Arial normal
+    pdf.set_font("Arial", "", 11)
     pdf.multi_cell(0, 10, texto)
 
+    # Guardar PDF en memoria
     pdf_output = BytesIO()
-    pdf_bytes = pdf.output(dest="S").encode("latin1")  # Exportar en bytes
+    pdf_bytes = pdf.output(dest="S").encode("latin1")  # exportamos en bytes
     pdf_output.write(pdf_bytes)
     return pdf_output.getvalue()
 
@@ -44,10 +40,8 @@ def generar_pdf(texto):
 # Interfaz Streamlit
 # =======================
 st.set_page_config(page_title="Gemini Assist", layout="centered")
-
 st.title("🔧 Predictivo de Mantenimiento")
 
-# Logo arriba en la app
 if os.path.exists("images/logo.png"):
     st.image("images/logo.png", width=120)
 
@@ -59,12 +53,11 @@ uploaded_file = st.file_uploader("Sube el archivo de activos (Excel)", type=["xl
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     st.success("✅ Archivo cargado correctamente")
-    st.dataframe(df.head())
+    st.dataframe(df)   # 👉 ahora muestra todos los registros
 
     if st.button("Generar Informe"):
         with st.spinner("⏳ Generando informe con Gemini Assist..."):
             try:
-                # Convertir tabla a texto para el prompt
                 tabla_texto = df.to_string(index=False)
 
                 prompt = f"""
@@ -82,16 +75,14 @@ if uploaded_file:
                 5. Un informe ejecutivo de máximo 5 líneas para Dirección.
                 """
 
-                # Llamada a Gemini
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 response = model.generate_content(prompt)
                 informe = response.text
 
-                # Mostrar en la app
                 st.subheader("📄 Informe Generado")
                 st.write(informe)
 
-                # Botón de descarga
+                # Botón de descarga PDF
                 pdf_bytes = generar_pdf(informe)
                 st.download_button(
                     label="⬇️ Descargar Informe PDF",
