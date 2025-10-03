@@ -249,10 +249,10 @@ except Exception as e:
 MODEL_ID = resolve_model_id()
 model, tiene_system = crear_modelo_con_fallback(MODEL_ID)
 
-# Inicializamos chat en sesión (persistente)
+# Inicializamos chat en sesión (persistente) — sin mostrar respuestas técnicas
 if "chat" not in st.session_state:
     st.session_state.chat = model.start_chat(history=[])
-    # Enviamos la tabla como contexto inicial
+    # Enviamos la tabla como contexto inicial (silencioso)
     primer_prompt = f"""
 Analiza y guarda en memoria la siguiente tabla de activos hospitalarios (texto). La usaremos como contexto en esta conversación.
 
@@ -260,25 +260,29 @@ TABLA:
 {st.session_state.tabla_texto}
 """
     try:
-        st.session_state.chat.send_message(primer_prompt) if tiene_system else st.session_state.chat.send_message(SYSTEM_INSTRUCTIONS + "\n\n" + primer_prompt)
+        if tiene_system:
+            st.session_state.chat.send_message(primer_prompt)
+        else:
+            st.session_state.chat.send_message(SYSTEM_INSTRUCTIONS + "\n\n" + primer_prompt)
     except Exception as e:
         st.error(f"⚠️ No se pudo inicializar el contexto: {e}")
 
-# ================== UI: iterar por chat ==================
-st.markdown("### 💬 Itera con el asistente")
+
+# ================== UI de interacción minimalista ==================
 user_msg = st.text_area(
-    "Tu mensaje (pide cambios, más detalle, otros cortes, etc.)",
-    height=120,
-    placeholder="Ej.: Reescribe el apartado de acciones preventivas priorizando equipos HVAC; usa cifras con separador de miles..."
+    label="",  # sin etiqueta visible
+    placeholder="Escribe aquí tu instrucción o ajuste para el informe…",
+    height=140,
+    label_visibility="collapsed"
 )
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    enviar = st.button("➡️ Enviar al asistente", type="primary")
+    enviar = st.button("➡️ Enviar", type="primary")
 with col2:
-    reset_chat = st.button("🧹 Reiniciar conversación")
-with col3:
     generar_final = st.button("🧾 Generar Informe Final (Word)")
+with col3:
+    reset_chat = st.button("🧹 Reiniciar")
 
 if reset_chat:
     st.session_state.chat = model.start_chat(history=[])
@@ -289,7 +293,10 @@ Analiza y guarda en memoria la siguiente tabla de activos hospitalarios (texto).
 TABLA:
 {st.session_state.tabla_texto}
 """
-        st.session_state.chat.send_message(primer_prompt) if tiene_system else st.session_state.chat.send_message(SYSTEM_INSTRUCTIONS + "\n\n" + primer_prompt)
+        if tiene_system:
+            st.session_state.chat.send_message(primer_prompt)
+        else:
+            st.session_state.chat.send_message(SYSTEM_INSTRUCTIONS + "\n\n" + primer_prompt)
         st.success("Conversación reiniciada.")
     except Exception as e:
         st.error(f"⚠️ No se pudo reiniciar el contexto: {e}")
@@ -300,8 +307,8 @@ if enviar and user_msg.strip():
             resp = st.session_state.chat.send_message(user_msg)
             respuesta = getattr(resp, "text", "") or ""
             respuesta_limpia = limpiar_texto_base(respuesta)
-            st.markdown("**Asistente:**")
-            # Vista con encabezados/viñetas
+
+            # Mostrar respuesta con títulos en negrita y viñetas limpias
             vista = []
             for raw in respuesta_limpia.splitlines():
                 l = raw.strip()
@@ -321,14 +328,12 @@ if enviar and user_msg.strip():
 if generar_final:
     with st.spinner("Generando documento final..."):
         try:
-            # Pedimos un informe final compacto y limpio, según las system instructions
             pedido_final = (
                 "Genera el informe final siguiendo las instrucciones del sistema "
                 "(sin markdown ni emojis; títulos claros; viñetas con '•'; redacción justificada)."
             )
             resp_final = st.session_state.chat.send_message(pedido_final) if tiene_system \
                          else st.session_state.chat.send_message(SYSTEM_INSTRUCTIONS + "\n\n" + pedido_final)
-
             informe_final = getattr(resp_final, "text", "") or ""
             informe_final_limpio = limpiar_texto_base(informe_final)
 
