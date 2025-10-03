@@ -12,12 +12,10 @@ from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
 
-# ======================================
-# Configuración general (sin diagnóstico)
-# ======================================
+# ============== Config página ==============
 st.set_page_config(page_title="Gemini Assist – Informe Predictivo", layout="wide")
 
-# Cabecera con logo
+# Logo y título
 try:
     st.image("images/logo.png", width=150)
 except Exception:
@@ -26,29 +24,23 @@ except Exception:
 st.title("🔧 Gemini Assist – Informe Predictivo de Mantenimiento")
 
 
-# ==============================
-# Lectura simple de API key
-# (mantiene compatibilidad con tu setup previo)
-# ==============================
+# ============== API KEY helpers ==============
 def get_api_key() -> str | None:
+    """Lee la API key de st.secrets o variables de entorno (nombres comunes)."""
     try:
-        if "GOOGLE_API_KEY" in st.secrets and str(st.secrets["GOOGLE_API_KEY"]).strip():
-            return str(st.secrets["GOOGLE_API_KEY"]).strip()
-        if "API_KEY" in st.secrets and str(st.secrets["API_KEY"]).strip():
-            return str(st.secrets["API_KEY"]).strip()
+        for k in ("GOOGLE_API_KEY", "API_KEY", "GEMINI_API_KEY"):
+            if k in st.secrets and str(st.secrets[k]).strip():
+                return str(st.secrets[k]).strip()
     except Exception:
         pass
-    # Fallback variables de entorno si ejecutas local
-    for name in ("GOOGLE_API_KEY", "API_KEY", "GEMINI_API_KEY"):
-        v = os.getenv(name, "").strip()
+    for k in ("GOOGLE_API_KEY", "API_KEY", "GEMINI_API_KEY"):
+        v = os.getenv(k, "").strip()
         if v:
             return v
     return None
 
 
-# ==============================
-# Limpieza y formato del texto del modelo
-# ==============================
+# ============== Limpieza / formato de texto ==============
 _bullet_regex = re.compile(r"^\s*[-•]\s*")
 
 def normaliza_numeracion(linea: str) -> str:
@@ -56,8 +48,7 @@ def normaliza_numeracion(linea: str) -> str:
     return re.sub(r"^(\s*\d+\.\s+)(\d+\.\s+)+", r"\1", linea)
 
 def limpiar_texto_base(texto: str) -> str:
-    # quita **negritas** markdown y asteriscos sueltos;
-    # homogeneiza viñetas a "• "
+    """Quita **negritas** markdown, asteriscos, homogeneiza viñetas a '• ' y corrige guiones raros."""
     texto = re.sub(r"\*\*(.*?)\*\*", r"\1", texto)
     lineas = []
     for raw in texto.splitlines():
@@ -67,7 +58,6 @@ def limpiar_texto_base(texto: str) -> str:
             l = re.sub(r"^\s*[\*\-]\s+", "• ", l)
         if "*" in l:
             l = l.replace("*", "")
-        # guiones raros a guion normal
         l = l.replace("–", "-").replace("—", "-")
         lineas.append(l)
     return "\n".join(lineas).strip()
@@ -83,9 +73,7 @@ def es_encabezado(linea: str) -> bool:
     return any(pat.lower() in linea.lower() for pat in patrones)
 
 
-# ==============================
-# Generación DOCX (sin resumen)
-# ==============================
+# ============== Generación DOCX (sin resumen) ==============
 def generar_word(informe: str) -> BytesIO:
     doc = Document()
 
@@ -151,9 +139,7 @@ def generar_word(informe: str) -> BytesIO:
     return buf
 
 
-# ==============================
-# Modelo + System Instructions
-# ==============================
+# ============== Modelo + System Instructions ==============
 MODEL_ID = "gemini-1.5-flash"  # ajusta si usas otro (p.ej. "gemini-2.5-flash")
 
 SYSTEM_INSTRUCTIONS = """
@@ -178,9 +164,22 @@ Notas:
 """
 
 
-# ==============================
-# Interfaz principal
-# ==============================
+def crear_modelo_con_fallback():
+    """
+    Crea el modelo intentando usar system_instruction.
+    Si el SDK es antiguo y no soporta ese argumento, hace fallback sin él.
+    """
+    try:
+        return genai.GenerativeModel(
+            model_name=MODEL_ID,
+            system_instruction=SYSTEM_INSTRUCTIONS
+        ), True
+    except TypeError:
+        # Fallback: SDK antiguo que no soporta system_instruction.
+        return genai.GenerativeModel(model_name=MODEL_ID), False
+
+
+# ============== Interfaz principal ==============
 st.subheader("📎 Sube el archivo de activos (Excel)")
 uploaded_file = st.file_uploader("Arrastra y suelta, o pulsa en **Browse files**", type=["xlsx"])
 
@@ -201,18 +200,24 @@ if uploaded_file:
                         )
                         st.stop()
 
-                    # Configurar Gemini aquí (solo cuando hace falta)
                     genai.configure(api_key=api_key)
 
-                    # Crear modelo con system instructions (nuevo)
-                    model = genai.GenerativeModel(
-                        model=MODEL_ID,
-                        system_instruction=SYSTEM_INSTRUCTIONS
-                    )
+                    model, tiene_system = crear_modelo_con_fallback()
 
-                    # Prompt solo con datos y petición
+                    # Prompt solo con datos; si no hay system_instruction, lo embebemos
                     tabla_texto = df.to_string(index=False)
-                    prompt = f"""
+
+                    if tiene_system:
+                        prompt = f"""
+Analiza la siguiente tabla de activos hospitalarios (texto) y genera el informe siguiendo estrictamente las instrucciones del sistema.
+
+TABLA:
+{tabla_texto}
+"""
+                    else:
+                        # Fallback: incluimos las system instructions dentro del prompt
+                        prompt = f"""{SYSTEM_INSTRUCTIONS}
+
 Analiza la siguiente tabla de activos hospitalarios (texto) y genera el informe siguiendo estrictamente las instrucciones del sistema.
 
 TABLA:
