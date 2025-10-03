@@ -1,300 +1,308 @@
 # app.py
-from __future__ import annotations
+# =========================================================
+# Gemini Assist – Informe Predictivo de Mantenimiento
+# (Streamlit + Google Gemini + Exportación a Word)
+# =========================================================
 
 import os
 import re
-from datetime import datetime
 from io import BytesIO
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 import google.generativeai as genai
+
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
 
-# =========================================
-# Configuración básica de la página / estilo
-# =========================================
+# -----------------------------
+# Configuración de la página
+# -----------------------------
 st.set_page_config(page_title="Gemini Assist", layout="wide")
 
-# Logo (opcional)
-LOGO_PATH = "images/logo.png"
-if os.path.exists(LOGO_PATH):
+
+# -----------------------------
+# Utilidades
+# -----------------------------
+def _flatten(d, prefix=""):
+    """Aplana dicts anidados de st.secrets para poder buscar claves dentro de secciones."""
+    out = {}
+    for k, v in d.items():
+        key = f"{prefix}{k}".lower()
+        if isinstance(v, dict):
+            out.update(_flatten(v, prefix=f"{key}."))
+        else:
+            out[key] = v
+    return out
+
+
+def load_api_key():
+    """
+    Busca la API Key en:
+      1) st.secrets (clave recomendada: GOOGLE_API_KEY)
+      2) st.secrets en secciones (p. ej. [general].google_api_key)
+      3) Variables de entorno (GOOGLE_API_KEY / GEMINI_API_KEY / API_KEY)
+    Configura google.generativeai si la encuentra.
+    """
+    # 1) secrets (si existen)
+    secrets_dict = {}
     try:
-        st.image(LOGO_PATH, width=150)
+        secrets_dict = _flatten(dict(st.secrets))
     except Exception:
-        pass
+        secrets_dict = {}
 
-st.title("🛠️ Gemini Assist – Informe Predictivo de Mantenimiento")
+    candidates = [
+        "google_api_key",          # recomendado
+        "gemini_api_key",
+        "googleapikey",
+        "gemini_key",
+        "api_key",
+        "general.google_api_key",  # por si está dentro de [general]
+    ]
 
-
-# =========================================
-# Carga robusta de API KEY (Secrets -> Env)
-# =========================================
-def load_api_key() -> str | None:
-    """Lee la clave desde st.secrets o variable de entorno, la exporta a ENV y configura Gemini."""
+    found_key_name = None
     key = None
 
-    # 1) Intentar leer de st.secrets (Streamlit Cloud)
-    try:
-        key = st.secrets.get("GOOGLE_API_KEY")
-        if key:
-            key = str(key).strip()
-    except Exception:
-        key = None
+    for name in candidates:
+        if name in secrets_dict and str(secrets_dict[name]).strip():
+            found_key_name = name
+            key = str(secrets_dict[name]).strip()
+            break
 
-    # 2) Fallback: variable de entorno (útil en local)
+    # 2) variables de entorno
     if not key:
-        key = os.environ.get("GOOGLE_API_KEY")
-        if key:
-            key = str(key).strip()
+        for env in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "API_KEY"]:
+            if os.getenv(env):
+                found_key_name = f"env:{env.lower()}"
+                key = os.getenv(env).strip()
+                break
 
-    # 3) Configurar SDK si tenemos clave
+    # 3) configurar
     if key:
         os.environ["GOOGLE_API_KEY"] = key
         try:
             genai.configure(api_key=key)
         except Exception as e:
-            st.error(f"⚠️ Error configurando la API KEY en Google SDK: {e}")
-        return key
+            st.error(f"⚠️ Error configurando Google SDK: {e}")
+        return key, found_key_name
 
-    return None
-
-
-API_KEY = load_api_key()
-
-with st.sidebar:
-    st.subheader("🔐 Estado de API Key")
-    st.write("• Detectada:", bool(API_KEY))
-
-if not API_KEY:
-    st.error(
-        '❌ No se encontró la API KEY. Configúrala en Streamlit Cloud → Settings → Secrets con:\n\n'
-        'GOOGLE_API_KEY="tu_clave"'
-    )
-    st.stop()  # No continuar sin clave
+    return None, None
 
 
-# =========================================
-# Utilidades
-# =========================================
+API_KEY, API_KEY_SOURCE = load_api_key()
+
+
 def limpiar_texto(texto: str) -> str:
-    """Elimina negritas y bullets Markdown y asteriscos sueltos."""
+    """Elimina asteriscos y formato Markdown del texto generado."""
     if not texto:
         return ""
-
-    # **negritas** -> negritas
+    # **negritas**
     texto = re.sub(r"\*\*(.*?)\*\*", r"\1", texto)
-
-    # bullets que empiezan por "* " al inicio de línea
+    # viñetas con *
     texto = re.sub(r"^\*\s*", "", texto, flags=re.MULTILINE)
-
     # asteriscos sueltos
     texto = texto.replace("*", "")
-
-    # Quitar restos de # (títulos Markdown) si aparecen en medio
-    # pero mantenemos números y puntos (listas numeradas)
-    texto = re.sub(r"^#{1,6}\s*", "", texto, flags=re.MULTILINE)
-
+    # guiones largos atípicos a guion normal
+    texto = texto.replace("–", "-").replace("—", "-")
     return texto.strip()
 
 
 def generar_word(informe: str, df: pd.DataFrame) -> BytesIO:
-    """Crea un archivo Word sobrio b/n con portada y resumen de tabla."""
+    """Crea un .docx con estilo neutro, portada y tabla de activos (blanco y negro)."""
     doc = Document()
 
-    # ---------- PORTADA ----------
+    # Márgenes
     section = doc.sections[0]
     section.top_margin = Inches(1)
     section.bottom_margin = Inches(1)
     section.left_margin = Inches(1)
     section.right_margin = Inches(1)
 
-    # Logo centrado (opcional)
-    if os.path.exists(LOGO_PATH):
-        try:
-            p_logo = doc.add_paragraph()
-            r_logo = p_logo.add_run()
-            r_logo.add_picture(LOGO_PATH, width=Inches(2))
-            p_logo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-        except Exception:
-            pass
+    # Logo (opcional)
+    try:
+        p_logo = doc.add_paragraph()
+        run_logo = p_logo.add_run()
+        run_logo.add_picture("images/logo.png", width=Inches(2))
+        p_logo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    except Exception:
+        pass
 
     # Título
     p_title = doc.add_paragraph("Gemini Assist")
     p_title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    r_title = p_title.runs[0]
-    r_title.font.size = Pt(28)
-    r_title.bold = True
-    r_title.font.color.rgb = RGBColor(0, 0, 0)
+    r = p_title.runs[0]
+    r.bold = True
+    r.font.size = Pt(28)
+    r.font.color.rgb = RGBColor(0, 0, 0)
 
     # Subtítulo
     p_sub = doc.add_paragraph("Informe Predictivo de Mantenimiento Hospitalario")
     p_sub.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    r_sub = p_sub.runs[0]
-    r_sub.font.size = Pt(14)
-    r_sub.font.color.rgb = RGBColor(80, 80, 80)
+    p_sub.runs[0].font.size = Pt(14)
+    p_sub.runs[0].font.color.rgb = RGBColor(80, 80, 80)
 
     # Fecha
-    p_fecha = doc.add_paragraph(datetime.now().strftime("%d/%m/%Y"))
-    p_fecha.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    r_fecha = p_fecha.runs[0]
-    r_fecha.font.size = Pt(11)
-    r_fecha.font.color.rgb = RGBColor(90, 90, 90)
+    p_date = doc.add_paragraph(datetime.now().strftime("%d/%m/%Y"))
+    p_date.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    p_date.runs[0].font.size = Pt(11)
+    p_date.runs[0].font.color.rgb = RGBColor(80, 80, 80)
 
     doc.add_page_break()
 
-    # ---------- RESUMEN DE ACTIVOS ----------
-    doc.add_heading("Resumen de activos (vista abreviada)", level=1)
-    # Para evitar documentos muy grandes, mostramos hasta 15 filas
-    df_vis = df.head(15).copy()
+    # -------- Resumen de activos (tabla) --------
+    doc.add_heading("Resumen de Activos", level=1)
+    if not df.empty:
+        cols = list(df.columns)
+        table = doc.add_table(rows=1, cols=len(cols))
+        table.style = "Table Grid"
 
-    table = doc.add_table(rows=1, cols=len(df_vis.columns))
-    table.style = "Table Grid"
+        # Cabecera
+        hdr = table.rows[0].cells
+        for i, col in enumerate(cols):
+            rr = hdr[i].paragraphs[0].add_run(str(col))
+            rr.bold = True
 
-    # Cabecera
-    hdr = table.rows[0].cells
-    for i, col in enumerate(df_vis.columns):
-        run = hdr[i].paragraphs[0].add_run(str(col))
-        run.bold = True
+        # Filas (máximo 25 para no hacer Word gigante)
+        for _, row in df.head(25).iterrows():
+            row_cells = table.add_row().cells
+            for i, value in enumerate(row):
+                row_cells[i].text = "" if pd.isna(value) else str(value)
 
-    # Filas
-    for _, row in df_vis.iterrows():
-        cells = table.add_row().cells
-        for i, val in enumerate(row):
-            cells[i].text = "" if pd.isna(val) else str(val)
+    doc.add_paragraph("")
 
-    doc.add_paragraph()
-
-    # ---------- INFORME DETALLADO ----------
-    doc.add_heading("Informe detallado", level=1)
+    # -------- Informe detallado --------
+    doc.add_heading("Informe Detallado", level=1)
     texto = limpiar_texto(informe)
-
-    for linea in texto.splitlines():
-        s = linea.strip()
-        if not s:
+    for linea in texto.split("\n"):
+        l = linea.strip()
+        if not l:
             continue
 
-        # Titulares sencillos detectados por heurística
-        if re.match(r"^\d+\.\s", s) and len(s) < 140:
-            # encabezado corto enumerado
-            h = doc.add_paragraph()
-            rr = h.add_run(s)
-            rr.bold = True
-            rr.font.size = Pt(12)
-        elif re.match(r"^[-–•]\s", s):
-            # viñetas -> estilo Lista
-            p = doc.add_paragraph(s[1:].strip(), style="List Bullet")
+        # Títulos Markdown
+        if l.startswith("### "):
+            doc.add_heading(l.replace("### ", "").strip(), level=2)
+        elif l.startswith("## "):
+            doc.add_heading(l.replace("## ", "").strip(), level=3)
+        # Listas numeradas
+        elif re.match(r"^\d+\.", l):
+            p = doc.add_paragraph(l, style="List Number")
             p.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
-        elif re.match(r"^\d+\.\s", s):
-            # listas numeradas
-            p = doc.add_paragraph(s, style="List Number")
+        # Bullets
+        elif l.startswith("- "):
+            p = doc.add_paragraph(l[2:], style="List Bullet")
             p.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+        # Párrafo normal
         else:
-            # párrafo normal
-            p = doc.add_paragraph(s)
+            p = doc.add_paragraph(l)
             p.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
-            for r in p.runs:
-                r.font.size = Pt(11)
-                r.font.name = "Calibri"
+            if p.runs:
+                p.runs[0].font.size = Pt(11)
 
-    # ---------- EXPORTAR ----------
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
+    # Guardar buffer
+    buff = BytesIO()
+    doc.save(buff)
+    buff.seek(0)
+    return buff
 
 
-# =========================================
-# Interfaz principal
-# =========================================
-st.markdown("#### 📎 Sube el archivo de activos (Excel)")
-uploaded_file = st.file_uploader(" ", type=["xlsx"], label_visibility="collapsed")
-
-if not uploaded_file:
-    st.info("Carga un archivo .xlsx para comenzar.")
-    st.stop()
-
-# Leer Excel con openpyxl (robusto)
+# -----------------------------
+# Cabecera de la App
+# -----------------------------
 try:
-    df = pd.read_excel(uploaded_file, engine="openpyxl")
+    st.image("images/logo.png", width=150)
 except Exception:
-    df = pd.read_excel(uploaded_file)  # fallback
+    st.write("")
 
-st.success("✅ Archivo cargado correctamente")
-st.dataframe(df, use_container_width=True)
-
-# Estado para deshabilitar botón mientras se genera
-if "generating" not in st.session_state:
-    st.session_state.generating = False
-
-
-def _set_generating(val: bool):
-    st.session_state.generating = val
-
-
-# Botón para generar informe
-btn = st.button(
-    "🚀 Generar Informe",
-    disabled=st.session_state.generating,
-    type="primary",
+st.markdown(
+    "<h1 style='margin-top:0'>🛠️ Gemini Assist – Informe Predictivo de Mantenimiento</h1>",
+    unsafe_allow_html=True,
 )
 
-if btn:
-    _set_generating(True)
+# Estado de API en la barra lateral
+with st.sidebar:
+    st.subheader("🔐 Estado de API Key")
+    st.write("Detectada:", bool(API_KEY))
+    st.write("Origen:", API_KEY_SOURCE or "—")
+    with st.expander("Diagnóstico de API (temporal)"):
+        st.write("Variables de entorno presentes:", [k for k in os.environ.keys() if "API" in k.upper()])
 
-    with st.spinner("🧠 Generando informe con Gemini Assist…"):
-        try:
-            # Convertimos la tabla a texto para el prompt (acotado)
-            tabla_texto = df.head(20).to_string(index=False)
+
+# Aviso si falta la clave
+if not API_KEY:
+    st.error(
+        '❌ No se encontró la API KEY. Configúrala en Streamlit Cloud → Settings → Secrets con:\n\n'
+        'GOOGLE_API_KEY="tu_clave"'
+    )
+
+# -----------------------------
+# Carga de Excel
+# -----------------------------
+st.subheader("📎 Sube el archivo de activos (Excel)")
+uploaded = st.file_uploader(" ", type=["xlsx"])
+
+df = pd.DataFrame()
+if uploaded is not None:
+    try:
+        df = pd.read_excel(uploaded)  # requiere openpyxl en requirements
+        st.success("✅ Archivo cargado correctamente")
+        st.dataframe(df, use_container_width=True)
+    except Exception as e:
+        st.error(f"Error leyendo Excel: {e}")
+
+
+# -----------------------------
+# Generación del informe
+# -----------------------------
+btn_disabled = not (API_KEY and not df.empty)
+generate = st.button("🚀 Generar Informe", disabled=not (API_KEY and not df.empty))
+
+if generate and btn_disabled is False:
+    try:
+        with st.spinner("🧠 Generando informe con Gemini Assist..."):
+            # Convertimos la tabla a texto (no limitar a top10)
+            tabla_texto = df.to_string(index=False)
 
             prompt = f"""
-Eres Gemini Assist, un sistema experto en mantenimiento hospitalario.
-Analiza la siguiente tabla de activos y redacta un informe en TEXTO PLANO (sin Markdown, sin asteriscos).
+Eres Gemini Assist, un sistema experto en mantenimiento hospitalario. Analiza la siguiente tabla de activos:
 
-Tabla (muestra):
 {tabla_texto}
 
-Estructura requerida:
-1. Ranking de riesgo de fallo en los próximos 3 meses (si no es claro por datos, razona y ordena por criticidad, coste y tiempo de parada; máximo 10 líneas).
-2. Acciones preventivas para los 3 activos más críticos (pasos concretos y justificación).
-3. Estimación orientativa de ahorro (€ y horas) si se aplican las medidas propuestas.
-4. Panel de alertas: clasifica cada activo en Bajo, Medio o Alto (breve justificación si procede).
-5. Informe ejecutivo final (máximo 5 líneas).
+Con esta información, genera un informe con los apartados:
+1. Acciones preventivas para los 3 activos más críticos.
+2. Estimación de ahorro en € y horas si aplico esas medidas (solo estimaciones realistas).
+3. Panel de alertas clasificando cada activo en: Bajo, Medio o Alto (breve justificación).
+4. Informe ejecutivo final (máximo 5 líneas), claro y accionable.
 
-Condiciones de estilo:
-- No utilices asteriscos, ni negritas, ni viñetas de Markdown.
-- Usa frases claras y completas, numeraciones normales (1., 2., 3.) si hace falta.
-- Tono profesional y neutro; no uses emojis.
-- Evita encabezados con #; escribe texto limpio.
+Requisitos de formato:
+- No uses asteriscos ni Markdown decorativo.
+- Usa títulos claros y texto justificado.
+- Estilo neutro, profesional, blanco y negro.
+- Español.
 """
 
             model = genai.GenerativeModel("gemini-2.5-flash")
-            response = model.generate_content(prompt, request_options={"timeout": 120})
+            response = model.generate_content(prompt)
             informe = response.text or ""
 
-            informe_limpio = limpiar_texto(informe)
+        if not informe.strip():
+            st.error("⚠️ No se pudo generar el informe. Intenta de nuevo.")
+        else:
+            st.success("✅ Informe generado correctamente")
 
-            st.subheader("📋 Informe generado")
-            st.text_area("Vista previa (texto)", informe_limpio, height=300)
+            limpio = limpiar_texto(informe)
+            st.text_area("📄 Informe (texto generado)", value=limpio, height=320)
 
-            # Descarga Word
-            word_bytes = generar_word(informe_limpio, df)
+            # Descargar Word
+            word_bytes = generar_word(informe, df)
             st.download_button(
                 label="⬇️ Descargar Informe Word",
                 data=word_bytes,
                 file_name="informe_predictivo.docx",
-                mime=(
-                    "application/vnd.openxmlformats-"
-                    "officedocument.wordprocessingml.document"
-                ),
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
 
-        except Exception as e:
-            st.error(f"❌ Error al generar el informe: {e}")
-
-        finally:
-            _set_generating(False)
-
+    except Exception as e:
+        st.error(f"❌ Error al procesar el informe: {e}")
