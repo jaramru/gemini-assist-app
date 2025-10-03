@@ -13,45 +13,53 @@ from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
 # ==============================
-# CONFIGURACIÓN INICIAL
+# CONFIGURACIÓN API KEY (robusta)
 # ==============================
-st.set_page_config(page_title="Gemini Assist", layout="wide")
+def get_api_key() -> tuple[str | None, str]:
+    """
+    Devuelve (api_key, source) donde source es 'secrets' o 'env' para depurar.
+    No imprime el valor de la clave.
+    """
+    key = None
+    source = "none"
 
-# Logo cabecera (no detiene la app si falta)
-try:
-    st.image("images/logo.png", width=150)
-except Exception:
-    pass
+    # 1) Streamlit Secrets
+    try:
+        if "GOOGLE_API_KEY" in st.secrets:
+            key = str(st.secrets["GOOGLE_API_KEY"]).strip()
+            source = "secrets"
+    except Exception:
+        pass
 
-st.markdown(
-    "<h1 style='margin-top:-10px'>🔧 Gemini Assist – Informe Predictivo de Mantenimiento</h1>",
-    unsafe_allow_html=True,
-)
+    # 2) Variables de entorno (fallback)
+    if not key:
+        key_env = os.environ.get("GOOGLE_API_KEY", "").strip()
+        if key_env:
+            key = key_env
+            source = "env"
 
-# ==============================
-# API KEY: st.secrets -> os.getenv
-# ==============================
-API_KEY = None
-try:
-    # 1) Secrets (preferente)
-    API_KEY = st.secrets.get("GOOGLE_API_KEY", None)
-except Exception:
-    API_KEY = None
+    return key, source
 
-# 2) Env var (respaldo)
-if not API_KEY:
-    API_KEY = os.getenv("GOOGLE_API_KEY", None)
+API_KEY, API_SOURCE = get_api_key()
 
-GENAI_READY = False
+# Banner de estado (sin exponer la clave)
+with st.sidebar:
+    st.caption("🔐 Estado de API Key")
+    if API_KEY:
+        st.success(f"API Key encontrada (origen: {API_SOURCE}).")
+    else:
+        st.error(
+            "No se encontró la API KEY. Configúrala en Streamlit Cloud → Settings → Secrets con:\n\n"
+            "GOOGLE_API_KEY = \"tu_clave\""
+        )
+
+# Configurar Gemini sólo si hay clave
 if API_KEY:
     try:
         genai.configure(api_key=API_KEY)
-        # pequeña prueba de config (no llama al modelo todavía)
-        _ = genai.GenerationConfig()
-        GENAI_READY = True
-        st.success("✅ API KEY detectada y configurada correctamente.")
     except Exception as e:
-        st.error(f"⚠️ Hubo un problema configurando la API: {e}")
+        st.error(f"⚠️ Error configurando la API KEY: {e}")
+
 else:
     st.error(
         "❌ No se encontró la API KEY. Configúrala en Streamlit Cloud → **Settings → Secrets** con:\n\n"
