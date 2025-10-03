@@ -139,9 +139,7 @@ def generar_word(informe: str) -> BytesIO:
     return buf
 
 
-# ============== Modelo + System Instructions ==============
-MODEL_ID = "gemini-1.5-flash"  # ajusta si usas otro (p.ej. "gemini-2.5-flash")
-
+# ============== System Instructions ==============
 SYSTEM_INSTRUCTIONS = """
 Eres Gemini Assist, un sistema experto en mantenimiento hospitalario.
 
@@ -164,19 +162,53 @@ Notas:
 """
 
 
-def crear_modelo_con_fallback():
+# ============== Resolver modelo disponible (con fallbacks) ==============
+PREFERRED_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    # Fallbacks para SDKs viejos (v1beta):
+    "gemini-1.0-pro",
+    "gemini-pro",
+]
+
+def resolve_model_id():
+    """Intenta listar modelos y elegir el mejor disponible para generateContent."""
+    try:
+        names = []
+        for m in genai.list_models():
+            # Algunos SDK devuelven 'models/<id>'
+            n = getattr(m, "name", "")
+            if n.startswith("models/"):
+                n = n.split("/", 1)[1]
+            methods = set(getattr(m, "supported_generation_methods", []) or [])
+            if "generateContent" in methods or not methods:
+                if n:
+                    names.append(n)
+        for wanted in PREFERRED_MODELS:
+            if wanted in names:
+                return wanted
+    except Exception:
+        pass
+    # Último recurso
+    return "gemini-1.0-pro"
+
+
+def crear_modelo_con_fallback(model_id: str):
     """
     Crea el modelo intentando usar system_instruction.
-    Si el SDK es antiguo y no soporta ese argumento, hace fallback sin él.
+    Si el SDK es antiguo y no lo soporta, hace fallback sin ese argumento.
     """
     try:
         return genai.GenerativeModel(
-            model_name=MODEL_ID,
+            model_name=model_id,
             system_instruction=SYSTEM_INSTRUCTIONS
         ), True
     except TypeError:
-        # Fallback: SDK antiguo que no soporta system_instruction.
-        return genai.GenerativeModel(model_name=MODEL_ID), False
+        return genai.GenerativeModel(model_name=model_id), False
 
 
 # ============== Interfaz principal ==============
@@ -200,9 +232,11 @@ if uploaded_file:
                         )
                         st.stop()
 
+                    # Config API + resolver modelo disponible
                     genai.configure(api_key=api_key)
+                    MODEL_ID = resolve_model_id()
 
-                    model, tiene_system = crear_modelo_con_fallback()
+                    model, tiene_system = crear_modelo_con_fallback(MODEL_ID)
 
                     # Prompt solo con datos; si no hay system_instruction, lo embebemos
                     tabla_texto = df.to_string(index=False)
