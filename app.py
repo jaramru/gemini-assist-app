@@ -12,19 +12,19 @@ from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
 
-# ============== Config página ==============
+# ================== Config página ==================
 st.set_page_config(page_title="Gemini Assist – Informe Predictivo", layout="wide")
 
-# Logo y título
+# Cabecera con logo
 try:
     st.image("images/logo.png", width=150)
 except Exception:
     pass
 
-st.title("🔧 Gemini Assist – Informe Predictivo de Mantenimiento")
+st.title("🔧 Gemini Assist – Informe Predictivo de Mantenimiento (modo chat)")
 
 
-# ============== API KEY helpers ==============
+# ================== API KEY helpers ==================
 def get_api_key() -> str | None:
     """Lee la API key de st.secrets o variables de entorno (nombres comunes)."""
     try:
@@ -40,7 +40,7 @@ def get_api_key() -> str | None:
     return None
 
 
-# ============== Limpieza / formato de texto ==============
+# ================== Limpieza / formato ==================
 _bullet_regex = re.compile(r"^\s*[-•]\s*")
 
 def normaliza_numeracion(linea: str) -> str:
@@ -73,7 +73,7 @@ def es_encabezado(linea: str) -> bool:
     return any(pat.lower() in linea.lower() for pat in patrones)
 
 
-# ============== Generación DOCX (sin resumen) ==============
+# ================== DOCX (portada + contenido) ==================
 def generar_word(informe: str) -> BytesIO:
     doc = Document()
 
@@ -106,7 +106,7 @@ def generar_word(informe: str) -> BytesIO:
 
     doc.add_page_break()
 
-    # Contenido (solo informe detallado)
+    # Contenido
     texto = limpiar_texto_base(informe)
     for raw in texto.splitlines():
         l = raw.strip()
@@ -139,7 +139,7 @@ def generar_word(informe: str) -> BytesIO:
     return buf
 
 
-# ============== System Instructions ==============
+# ================== System Instructions ==================
 SYSTEM_INSTRUCTIONS = """
 Eres Gemini Assist, un sistema experto en mantenimiento hospitalario.
 
@@ -162,7 +162,7 @@ Notas:
 """
 
 
-# ============== Resolver modelo disponible (con fallbacks) ==============
+# ================== Resolver modelo disponible ==================
 PREFERRED_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-pro",
@@ -180,7 +180,6 @@ def resolve_model_id():
     try:
         names = []
         for m in genai.list_models():
-            # Algunos SDK devuelven 'models/<id>'
             n = getattr(m, "name", "")
             if n.startswith("models/"):
                 n = n.split("/", 1)[1]
@@ -193,7 +192,6 @@ def resolve_model_id():
                 return wanted
     except Exception:
         pass
-    # Último recurso
     return "gemini-1.0-pro"
 
 
@@ -211,7 +209,7 @@ def crear_modelo_con_fallback(model_id: str):
         return genai.GenerativeModel(model_name=model_id), False
 
 
-# ============== Interfaz principal ==============
+# ================== UI: subir Excel ==================
 st.subheader("📎 Sube el archivo de activos (Excel)")
 uploaded_file = st.file_uploader("Arrastra y suelta, o pulsa en **Browse files**", type=["xlsx"])
 
@@ -221,77 +219,125 @@ if uploaded_file:
         st.success("✅ Archivo cargado correctamente")
         st.dataframe(df.head(50), use_container_width=True)
 
-        if st.button("🚀 Generar Informe", type="primary"):
-            with st.spinner("🧠 Generando informe con Gemini Assist..."):
-                try:
-                    api_key = get_api_key()
-                    if not api_key:
-                        st.error(
-                            "❌ No se encontró la API KEY. Configúrala en Streamlit Cloud → Settings → Secrets con:\n\n"
-                            'GOOGLE_API_KEY="tu_clave"  (o API_KEY)'
-                        )
-                        st.stop()
-
-                    # Config API + resolver modelo disponible
-                    genai.configure(api_key=api_key)
-                    MODEL_ID = resolve_model_id()
-
-                    model, tiene_system = crear_modelo_con_fallback(MODEL_ID)
-
-                    # Prompt solo con datos; si no hay system_instruction, lo embebemos
-                    tabla_texto = df.to_string(index=False)
-
-                    if tiene_system:
-                        prompt = f"""
-Analiza la siguiente tabla de activos hospitalarios (texto) y genera el informe siguiendo estrictamente las instrucciones del sistema.
-
-TABLA:
-{tabla_texto}
-"""
-                    else:
-                        # Fallback: incluimos las system instructions dentro del prompt
-                        prompt = f"""{SYSTEM_INSTRUCTIONS}
-
-Analiza la siguiente tabla de activos hospitalarios (texto) y genera el informe siguiendo estrictamente las instrucciones del sistema.
-
-TABLA:
-{tabla_texto}
-"""
-
-                    resp = model.generate_content(prompt)
-                    informe_raw = (resp.text or "").strip()
-
-                    # Limpieza/normalización
-                    informe_limpio = limpiar_texto_base(informe_raw)
-
-                    # Vista previa con títulos en negrita y viñetas
-                    st.subheader("📄 Informe (vista previa)")
-                    vista = []
-                    for raw in informe_limpio.splitlines():
-                        l = raw.strip()
-                        if not l:
-                            continue
-                        if es_encabezado(l):
-                            vista.append(f"**{l}**")
-                        elif _bullet_regex.match(l):
-                            vista.append(f"- {l[_bullet_regex.match(l).end():]}")
-                        else:
-                            vista.append(l)
-                    st.markdown("\n\n".join(vista))
-
-                    # DOCX
-                    word_bytes = generar_word(informe_limpio)
-                    st.download_button(
-                        "⬇️ Descargar Informe (Word)",
-                        data=word_bytes,
-                        file_name="informe_predictivo.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    )
-
-                except Exception as e:
-                    st.error(f"❌ Error al generar el informe: {e}")
+        # Guardamos la tabla en sesión una sola vez (contexto del chat)
+        if "tabla_texto" not in st.session_state:
+            st.session_state.tabla_texto = df.to_string(index=False)
 
     except Exception as e:
         st.error(f"❌ No se pudo leer el Excel: {e}")
+        st.stop()
 else:
     st.info("Carga un archivo .xlsx para comenzar.")
+    st.stop()
+
+
+# ================== Configurar modelo + chat ==================
+api_key = get_api_key()
+if not api_key:
+    st.error(
+        "❌ No se encontró la API KEY. Configúrala en Streamlit Cloud → Settings → Secrets con:\n\n"
+        'GOOGLE_API_KEY="tu_clave"  (o API_KEY)'
+    )
+    st.stop()
+
+try:
+    genai.configure(api_key=api_key)
+except Exception as e:
+    st.error(f"⚠️ Error configurando la API KEY: {e}")
+    st.stop()
+
+MODEL_ID = resolve_model_id()
+model, tiene_system = crear_modelo_con_fallback(MODEL_ID)
+
+# Inicializamos chat en sesión (persistente)
+if "chat" not in st.session_state:
+    st.session_state.chat = model.start_chat(history=[])
+    # Enviamos la tabla como contexto inicial
+    primer_prompt = f"""
+Analiza y guarda en memoria la siguiente tabla de activos hospitalarios (texto). La usaremos como contexto en esta conversación.
+
+TABLA:
+{st.session_state.tabla_texto}
+"""
+    try:
+        st.session_state.chat.send_message(primer_prompt) if tiene_system else st.session_state.chat.send_message(SYSTEM_INSTRUCTIONS + "\n\n" + primer_prompt)
+    except Exception as e:
+        st.error(f"⚠️ No se pudo inicializar el contexto: {e}")
+
+# ================== UI: iterar por chat ==================
+st.markdown("### 💬 Itera con el asistente")
+user_msg = st.text_area(
+    "Tu mensaje (pide cambios, más detalle, otros cortes, etc.)",
+    height=120,
+    placeholder="Ej.: Reescribe el apartado de acciones preventivas priorizando equipos HVAC; usa cifras con separador de miles..."
+)
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    enviar = st.button("➡️ Enviar al asistente", type="primary")
+with col2:
+    reset_chat = st.button("🧹 Reiniciar conversación")
+with col3:
+    generar_final = st.button("🧾 Generar Informe Final (Word)")
+
+if reset_chat:
+    st.session_state.chat = model.start_chat(history=[])
+    try:
+        primer_prompt = f"""
+Analiza y guarda en memoria la siguiente tabla de activos hospitalarios (texto). La usaremos como contexto en esta conversación.
+
+TABLA:
+{st.session_state.tabla_texto}
+"""
+        st.session_state.chat.send_message(primer_prompt) if tiene_system else st.session_state.chat.send_message(SYSTEM_INSTRUCTIONS + "\n\n" + primer_prompt)
+        st.success("Conversación reiniciada.")
+    except Exception as e:
+        st.error(f"⚠️ No se pudo reiniciar el contexto: {e}")
+
+if enviar and user_msg.strip():
+    with st.spinner("Pensando..."):
+        try:
+            resp = st.session_state.chat.send_message(user_msg)
+            respuesta = getattr(resp, "text", "") or ""
+            respuesta_limpia = limpiar_texto_base(respuesta)
+            st.markdown("**Asistente:**")
+            # Vista con encabezados/viñetas
+            vista = []
+            for raw in respuesta_limpia.splitlines():
+                l = raw.strip()
+                if not l:
+                    continue
+                if es_encabezado(l):
+                    vista.append(f"**{l}**")
+                elif _bullet_regex.match(l):
+                    vista.append(f"- {l[_bullet_regex.match(l).end():]}")
+                else:
+                    vista.append(l)
+            st.markdown("\n\n".join(vista))
+        except Exception as e:
+            st.error(f"❌ Error en la respuesta del asistente: {e}")
+
+# ================== Generar informe final (Word) ==================
+if generar_final:
+    with st.spinner("Generando documento final..."):
+        try:
+            # Pedimos un informe final compacto y limpio, según las system instructions
+            pedido_final = (
+                "Genera el informe final siguiendo las instrucciones del sistema "
+                "(sin markdown ni emojis; títulos claros; viñetas con '•'; redacción justificada)."
+            )
+            resp_final = st.session_state.chat.send_message(pedido_final) if tiene_system \
+                         else st.session_state.chat.send_message(SYSTEM_INSTRUCTIONS + "\n\n" + pedido_final)
+
+            informe_final = getattr(resp_final, "text", "") or ""
+            informe_final_limpio = limpiar_texto_base(informe_final)
+
+            word_bytes = generar_word(informe_final_limpio)
+            st.download_button(
+                "⬇️ Descargar Informe (Word)",
+                data=word_bytes,
+                file_name="informe_predictivo.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        except Exception as e:
+            st.error(f"❌ Error al generar el informe final: {e}")
