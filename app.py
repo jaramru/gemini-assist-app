@@ -110,8 +110,11 @@ def limpiar_texto(texto: str) -> str:
     return texto.strip()
 
 
-def generar_word(informe: str, df: pd.DataFrame) -> BytesIO:
-    """Crea un .docx con estilo neutro, portada y tabla de activos (blanco y negro)."""
+def generar_word(informe: str) -> BytesIO:
+    """
+    Crea un .docx con portada y SOLO el 'Informe Detallado'
+    (Se elimina la sección 'Resumen de Activos').
+    """
     doc = Document()
 
     # Márgenes
@@ -152,28 +155,7 @@ def generar_word(informe: str, df: pd.DataFrame) -> BytesIO:
 
     doc.add_page_break()
 
-    # -------- Resumen de activos (tabla) --------
-    doc.add_heading("Resumen de Activos", level=1)
-    if not df.empty:
-        cols = list(df.columns)
-        table = doc.add_table(rows=1, cols=len(cols))
-        table.style = "Table Grid"
-
-        # Cabecera
-        hdr = table.rows[0].cells
-        for i, col in enumerate(cols):
-            rr = hdr[i].paragraphs[0].add_run(str(col))
-            rr.bold = True
-
-        # Filas (máximo 25 para no hacer Word gigante)
-        for _, row in df.head(25).iterrows():
-            row_cells = table.add_row().cells
-            for i, value in enumerate(row):
-                row_cells[i].text = "" if pd.isna(value) else str(value)
-
-    doc.add_paragraph("")
-
-    # -------- Informe detallado --------
+    # -------- Informe detallado (única sección de contenido) --------
     doc.add_heading("Informe Detallado", level=1)
     texto = limpiar_texto(informe)
     for linea in texto.split("\n"):
@@ -262,7 +244,7 @@ generate = st.button("🚀 Generar Informe", disabled=not (API_KEY and not df.em
 if generate and btn_disabled is False:
     try:
         with st.spinner("🧠 Generando informe con Gemini Assist..."):
-            # Convertimos la tabla a texto (no limitar a top10)
+            # Convertimos la tabla a texto (modelo usa todo el dataset)
             tabla_texto = df.to_string(index=False)
 
             prompt = f"""
@@ -285,9 +267,9 @@ Requisitos de formato:
 
             model = genai.GenerativeModel("gemini-2.5-flash")
             response = model.generate_content(prompt)
-            informe = response.text or ""
+            informe = (response.text or "").strip()
 
-        if not informe.strip():
+        if not informe:
             st.error("⚠️ No se pudo generar el informe. Intenta de nuevo.")
         else:
             st.success("✅ Informe generado correctamente")
@@ -295,8 +277,8 @@ Requisitos de formato:
             limpio = limpiar_texto(informe)
             st.text_area("📄 Informe (texto generado)", value=limpio, height=320)
 
-            # Descargar Word
-            word_bytes = generar_word(informe, df)
+            # Descargar Word (sin resumen de activos)
+            word_bytes = generar_word(informe)
             st.download_button(
                 label="⬇️ Descargar Informe Word",
                 data=word_bytes,
