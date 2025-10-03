@@ -27,25 +27,28 @@ st.title("🔧 Gemini Assist – Informe Predictivo de Mantenimiento")
 
 
 # ==============================
-# Lectura robusta de API key
+# Lectura simple de API key
+# (mantiene compatibilidad con tu setup previo)
 # ==============================
 def get_api_key() -> str | None:
-    # 1) st.secrets (Cloud)
     try:
-        if "GOOGLE_API_KEY" in st.secrets:
-            v = st.secrets["GOOGLE_API_KEY"]
-            if isinstance(v, str) and v.strip():
-                return v.strip()
+        if "GOOGLE_API_KEY" in st.secrets and str(st.secrets["GOOGLE_API_KEY"]).strip():
+            return str(st.secrets["GOOGLE_API_KEY"]).strip()
+        if "API_KEY" in st.secrets and str(st.secrets["API_KEY"]).strip():
+            return str(st.secrets["API_KEY"]).strip()
     except Exception:
         pass
-    # 2) Variable de entorno (local u otros despliegues)
-    v = os.getenv("GOOGLE_API_KEY", "").strip()
-    return v or None
+    # Fallback variables de entorno si ejecutas local
+    for name in ("GOOGLE_API_KEY", "API_KEY", "GEMINI_API_KEY"):
+        v = os.getenv(name, "").strip()
+        if v:
+            return v
+    return None
 
 
-# ======================================
+# ==============================
 # Limpieza y formato del texto del modelo
-# ======================================
+# ==============================
 _bullet_regex = re.compile(r"^\s*[-•]\s*")
 
 def normaliza_numeracion(linea: str) -> str:
@@ -64,6 +67,8 @@ def limpiar_texto_base(texto: str) -> str:
             l = re.sub(r"^\s*[\*\-]\s+", "• ", l)
         if "*" in l:
             l = l.replace("*", "")
+        # guiones raros a guion normal
+        l = l.replace("–", "-").replace("—", "-")
         lineas.append(l)
     return "\n".join(lineas).strip()
 
@@ -113,7 +118,7 @@ def generar_word(informe: str) -> BytesIO:
 
     doc.add_page_break()
 
-    # Contenido
+    # Contenido (solo informe detallado)
     texto = limpiar_texto_base(informe)
     for raw in texto.splitlines():
         l = raw.strip()
@@ -147,7 +152,34 @@ def generar_word(informe: str) -> BytesIO:
 
 
 # ==============================
-# Interfaz principal (sin banner de API al cargar)
+# Modelo + System Instructions
+# ==============================
+MODEL_ID = "gemini-1.5-flash"  # ajusta si usas otro (p.ej. "gemini-2.5-flash")
+
+SYSTEM_INSTRUCTIONS = """
+Eres Gemini Assist, un sistema experto en mantenimiento hospitalario.
+
+Reglas de estilo:
+- Estilo neutro, profesional y en blanco y negro.
+- No uses asteriscos (*) ni emojis.
+- Usa títulos claros (ej. '1. Acciones preventivas...') y listas con viñetas (•) cuando corresponda.
+- Redacción clara y concisa, justificada.
+
+Estructura obligatoria del informe (en este orden):
+1) Acciones preventivas para los 3 activos más críticos.
+2) Estimación de ahorro en € y horas si se aplican esas medidas.
+3) Panel de alertas clasificando cada activo en: Bajo, Medio o Alto.
+4) Informe ejecutivo final (máximo 5 líneas).
+
+Notas:
+- No incluyas Markdown decorativo (##, ###) ni negritas con ** **.
+- Evita símbolos raros (✔, ❌, etc.).
+- No repitas numeración (nada de '1. 1.').
+"""
+
+
+# ==============================
+# Interfaz principal
 # ==============================
 st.subheader("📎 Sube el archivo de activos (Excel)")
 uploaded_file = st.file_uploader("Arrastra y suelta, o pulsa en **Browse files**", type=["xlsx"])
@@ -161,47 +193,36 @@ if uploaded_file:
         if st.button("🚀 Generar Informe", type="primary"):
             with st.spinner("🧠 Generando informe con Gemini Assist..."):
                 try:
-                    # Comprobación de API key SOLO cuando hace falta
                     api_key = get_api_key()
                     if not api_key:
                         st.error(
                             "❌ No se encontró la API KEY. Configúrala en Streamlit Cloud → Settings → Secrets con:\n\n"
-                            '`GOOGLE_API_KEY="tu_clave"`'
+                            'GOOGLE_API_KEY="tu_clave"  (o API_KEY)'
                         )
                         st.stop()
 
-                    # Configurar Gemini
+                    # Configurar Gemini aquí (solo cuando hace falta)
                     genai.configure(api_key=api_key)
 
+                    # Crear modelo con system instructions (nuevo)
+                    model = genai.GenerativeModel(
+                        model=MODEL_ID,
+                        system_instruction=SYSTEM_INSTRUCTIONS
+                    )
+
+                    # Prompt solo con datos y petición
                     tabla_texto = df.to_string(index=False)
                     prompt = f"""
-Eres Gemini Assist, un sistema experto en mantenimiento hospitalario.
+Analiza la siguiente tabla de activos hospitalarios (texto) y genera el informe siguiendo estrictamente las instrucciones del sistema.
 
-Analiza la siguiente tabla de activos y genera EXCLUSIVAMENTE el contenido del informe (sin tablas y sin “Resumen de activos”):
-
+TABLA:
 {tabla_texto}
-
-Secciones que debes entregar (texto, bien redactado, sin Markdown y sin asteriscos):
-1. Acciones preventivas para los 3 activos más críticos.
-   - Usa viñetas con “•”.
-2. Estimación de ahorro en € y horas si se aplican esas medidas.
-   - Usa viñetas con “•”.
-3. Panel de alertas por activo (Bajo, Medio, Alto).
-   - Usa viñetas con “•”.
-4. Informe ejecutivo final (máximo 5 líneas).
-   - Párrafo directo, sin viñetas.
-
-Reglas:
-- No uses **negritas** ni # ni * (no Markdown).
-- Numera los títulos como “1. ...”, “2. ...” (sin repetir “1. 1.”).
-- Usa “• ” para viñetas dentro de cada sección.
-- Redacción profesional, clara, en español.
 """
 
-                    model = genai.GenerativeModel("gemini-2.5-flash")
                     resp = model.generate_content(prompt)
                     informe_raw = (resp.text or "").strip()
 
+                    # Limpieza/normalización
                     informe_limpio = limpiar_texto_base(informe_raw)
 
                     # Vista previa con títulos en negrita y viñetas
